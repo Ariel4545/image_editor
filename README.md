@@ -1,6 +1,6 @@
-# image_editor
+# image_editor📷
 an image editor bulid on simplegui and pillow
-## features
+## features ✨
 1. flip
 2. emboss
 3. countor
