@@ -1,4 +1,4 @@
-![EIE_logo(1)](https://user-images.githubusercontent.com/95249974/181735128-bdb4ebdd-4050-4b3a-b332-2768afb26b45.png)
+![EIE_logo(2)](https://user-images.githubusercontent.com/95249974/181735369-4a16d146-9a63-4aca-8a70-83787a5406eb.png)
 an image editor bulid on simplegui and pillow
 ## features ✨
 1. flip
