@@ -4,7 +4,7 @@ import PySimpleGUI as sg
 from io import BytesIO
 
 # function that take the original image and the values from the buttons to update the image
-def update_image(original, blur, contrast, brightness, color, sharpness, edge_enhance, detail, emboss, contour, flipx, flipy, rotation):
+def update_image(original, blur, contrast, brightness, color, sharpness, edge_enhance, detail, emboss, contour, flipx, flipy, rotation, scale, invert, sepia):
     global image
     image = original.copy()
 
@@ -18,6 +18,18 @@ def update_image(original, blur, contrast, brightness, color, sharpness, edge_en
     if flipy:
         image = ImageOps.flip(image)
 
+    # apply scale
+    if scale != 100:
+        w, h = image.size
+        new_w = int(w * (scale / 100))
+        new_h = int(h * (scale / 100))
+        # Use Resampling.LANCZOS if available, else fallback (handled by PIL usually)
+        try:
+            resample = Image.Resampling.LANCZOS
+        except AttributeError:
+            resample = Image.LANCZOS
+        image = image.resize((new_w, new_h), resample)
+
     # apply filters
     if blur > 0:
         image = image.filter(ImageFilter.GaussianBlur(blur))
@@ -29,6 +41,27 @@ def update_image(original, blur, contrast, brightness, color, sharpness, edge_en
         image = image.filter(ImageFilter.EMBOSS())
     if contour:
         image = image.filter(ImageFilter.CONTOUR())
+
+    # apply color effects
+    if invert:
+        if image.mode == 'RGBA':
+            r, g, b, a = image.split()
+            rgb_image = Image.merge('RGB', (r, g, b))
+            inverted_image = ImageOps.invert(rgb_image)
+            r2, g2, b2 = inverted_image.split()
+            image = Image.merge('RGBA', (r2, g2, b2, a))
+        else:
+            image = ImageOps.invert(image)
+
+    if sepia:
+        if image.mode == 'RGBA':
+            alpha = image.split()[3]
+            gray = image.convert('L')
+            image = ImageOps.colorize(gray, '#704214', '#C0C080')
+            image.putalpha(alpha)
+        else:
+            gray = image.convert('L')
+            image = ImageOps.colorize(gray, '#704214', '#C0C080')
 
     # apply enhancements
     if contrast != 1.0:
@@ -61,6 +94,7 @@ effects_tab = [
     [sg.Frame('Blur', layout=[[sg.Slider(range=(0, 10), orientation='h', key='-BLUR-')]])],
     [sg.Checkbox('Detail', key='-DETAIL-'), sg.Checkbox('Edge Enhance', key='-EDGE-')],
     [sg.Checkbox('Emboss', key='-EMBOSS-'), sg.Checkbox('Contour', key='-CONTOUR-')],
+    [sg.Checkbox('Invert', key='-INVERT-'), sg.Checkbox('Sepia', key='-SEPIA-')],
 ]
 
 adjustments_tab = [
@@ -73,6 +107,7 @@ adjustments_tab = [
 transform_tab = [
     [sg.Checkbox('Flip X', key='-FLIPX-'), sg.Checkbox('Flip Y', key='-FLIPY-')],
     [sg.Frame('Rotation', layout=[[sg.Slider(range=(0, 360), default_value=0, orientation='h', key='-ROTATION-')]])],
+    [sg.Frame('Scale %', layout=[[sg.Slider(range=(10, 200), default_value=100, orientation='h', key='-SCALE-')]])],
 ]
 
 control_column = sg.Column([
@@ -117,7 +152,10 @@ while True:
                      values['-CONTOUR-'],
                      values['-FLIPX-'],
                      values['-FLIPY-'],
-                     values['-ROTATION-'])
+                     values['-ROTATION-'],
+                     values['-SCALE-'],
+                     values['-INVERT-'],
+                     values['-SEPIA-'])
         prev_values = values
 
     # if user pressed save button
