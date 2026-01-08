@@ -14,6 +14,8 @@ The editor is organized into three main tabs for easy access to all tools:
 *   **Edge Enhance**: Emphasize edges within the image.
 *   **Emboss**: Apply an emboss effect for a 3D look.
 *   **Contour**: Extract and display the contours of the image.
+*   **Invert**: Invert colors (negative effect).
+*   **Sepia**: Apply a vintage sepia tone.
 
 ### 🛠️ Adjustments
 *   **Contrast**: Adjust the difference between light and dark areas.
@@ -24,6 +26,7 @@ The editor is organized into three main tabs for easy access to all tools:
 ### 🔄 Transform
 *   **Flip X / Y**: Mirror the image horizontally or vertically.
 *   **Rotation**: Rotate the image 360 degrees.
+*   **Scale**: Resize the image (10% - 200%).
 
 ## Installation 📦
 
