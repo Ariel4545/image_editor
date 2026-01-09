@@ -6,10 +6,14 @@ A simple yet powerful image editor built with Python, using **PySimpleGUI** for 
 
 ## Features ✨
 
-The editor is organized into three main tabs for easy access to all tools:
+The editor is organized into five main tabs for easy access to all tools:
 
 ### 🎨 Effects
 *   **Blur**: Apply Gaussian blur to soften the image.
+*   **Posterize**: Reduce the number of colors for a poster-like effect.
+*   **Solarize**: Invert pixel values above a threshold.
+
+### 🖼️ Filters
 *   **Detail**: Enhance fine details.
 *   **Edge Enhance**: Emphasize edges within the image.
 *   **Emboss**: Apply an emboss effect for a 3D look.
@@ -20,8 +24,11 @@ The editor is organized into three main tabs for easy access to all tools:
 ### 🛠️ Adjustments
 *   **Contrast**: Adjust the difference between light and dark areas.
 *   **Brightness**: Make the image lighter or darker.
-*   **Color**: Adjust color saturation (from black & white to vibrant).
 *   **Sharpness**: Sharpen the image to make it clearer.
+
+### 🌈 Color
+*   **Saturation**: Adjust color intensity (from black & white to vibrant).
+*   **RGB Balance**: Fine-tune Red, Green, and Blue channels individually.
 
 ### 🔄 Transform
 *   **Flip X / Y**: Mirror the image horizontally or vertically.
@@ -42,10 +49,10 @@ pip install Pillow PySimpleGUI
 1.  Run the `main.py` script.
 2.  Select an image file when prompted.
 3.  Use the tabs to apply various effects and adjustments.
-4.  Click **Save** to save your edited image as a PNG file.
+4.  Click **Save** to save your edited image as a PNG or JPEG file.
 
 ## Roadmap 🗺️
 
 *   [ ] Crop functionality
 *   [ ] Undo/Redo support
-*   [ ] More file format support
+*   [ ] Batch processing
