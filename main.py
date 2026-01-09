@@ -2,9 +2,10 @@
 from PIL import Image, ImageFilter, ImageOps, ImageEnhance
 import PySimpleGUI as sg
 from io import BytesIO
+import os
 
 # function that take the original image and the values from the buttons to update the image
-def update_image(original, blur, contrast, brightness, color, sharpness, edge_enhance, detail, emboss, contour, flipx, flipy, rotation, scale, invert, sepia):
+def update_image(original, blur, contrast, brightness, color, sharpness, edge_enhance, detail, emboss, contour, flipx, flipy, rotation, scale, invert, sepia, posterize, solarize, r_factor, g_factor, b_factor):
     global image
     image = original.copy()
 
@@ -42,6 +43,32 @@ def update_image(original, blur, contrast, brightness, color, sharpness, edge_en
     if contour:
         image = image.filter(ImageFilter.CONTOUR())
 
+    # apply posterize
+    if posterize < 8:
+        # posterize requires an integer from 1 to 8
+        # we ensure it is at least 1
+        bits = max(1, int(posterize))
+        if image.mode == 'RGBA':
+            # posterize might lose alpha or not handle it well, let's separate alpha
+            r, g, b, a = image.split()
+            rgb = Image.merge('RGB', (r, g, b))
+            rgb = ImageOps.posterize(rgb, bits)
+            r, g, b = rgb.split()
+            image = Image.merge('RGBA', (r, g, b, a))
+        else:
+            image = ImageOps.posterize(image, bits)
+
+    # apply solarize
+    if solarize < 255:
+        if image.mode == 'RGBA':
+            r, g, b, a = image.split()
+            rgb = Image.merge('RGB', (r, g, b))
+            rgb = ImageOps.solarize(rgb, int(solarize))
+            r, g, b = rgb.split()
+            image = Image.merge('RGBA', (r, g, b, a))
+        else:
+            image = ImageOps.solarize(image, int(solarize))
+
     # apply color effects
     if invert:
         if image.mode == 'RGBA':
@@ -62,6 +89,29 @@ def update_image(original, blur, contrast, brightness, color, sharpness, edge_en
         else:
             gray = image.convert('L')
             image = ImageOps.colorize(gray, '#704214', '#C0C080')
+
+    # apply RGB balance
+    if r_factor != 1.0 or g_factor != 1.0 or b_factor != 1.0:
+        if image.mode == 'L':
+            image = image.convert('RGB')
+        
+        if image.mode == 'RGBA':
+            r, g, b, a = image.split()
+        else:
+            r, g, b = image.split()
+            a = None
+        
+        if r_factor != 1.0:
+            r = r.point(lambda i: i * r_factor)
+        if g_factor != 1.0:
+            g = g.point(lambda i: i * g_factor)
+        if b_factor != 1.0:
+            b = b.point(lambda i: i * b_factor)
+            
+        if a:
+            image = Image.merge('RGBA', (r, g, b, a))
+        else:
+            image = Image.merge('RGB', (r, g, b))
 
     # apply enhancements
     if contrast != 1.0:
@@ -92,6 +142,11 @@ if not image_path:
 # control layout
 effects_tab = [
     [sg.Frame('Blur', layout=[[sg.Slider(range=(0, 10), orientation='h', key='-BLUR-')]])],
+    [sg.Frame('Posterize', layout=[[sg.Slider(range=(1, 8), default_value=8, orientation='h', key='-POSTERIZE-')]])],
+    [sg.Frame('Solarize', layout=[[sg.Slider(range=(0, 255), default_value=255, orientation='h', key='-SOLARIZE-')]])],
+]
+
+filters_tab = [
     [sg.Checkbox('Detail', key='-DETAIL-'), sg.Checkbox('Edge Enhance', key='-EDGE-')],
     [sg.Checkbox('Emboss', key='-EMBOSS-'), sg.Checkbox('Contour', key='-CONTOUR-')],
     [sg.Checkbox('Invert', key='-INVERT-'), sg.Checkbox('Sepia', key='-SEPIA-')],
@@ -100,8 +155,14 @@ effects_tab = [
 adjustments_tab = [
     [sg.Frame('Contrast', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-CONTRAST-')]])],
     [sg.Frame('Brightness', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-BRIGHTNESS-')]])],
-    [sg.Frame('Color', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-COLOR-')]])],
     [sg.Frame('Sharpness', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-SHARPNESS-')]])],
+]
+
+color_tab = [
+    [sg.Frame('Saturation', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-COLOR-')]])],
+    [sg.Frame('Red', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-R_FACTOR-')]])],
+    [sg.Frame('Green', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-G_FACTOR-')]])],
+    [sg.Frame('Blue', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-B_FACTOR-')]])],
 ]
 
 transform_tab = [
@@ -112,7 +173,7 @@ transform_tab = [
 
 control_column = sg.Column([
     [sg.TabGroup([
-        [sg.Tab('Effects', effects_tab), sg.Tab('Adjustments', adjustments_tab), sg.Tab('Transform', transform_tab)]
+        [sg.Tab('Effects', effects_tab), sg.Tab('Filters', filters_tab), sg.Tab('Adjustments', adjustments_tab), sg.Tab('Color', color_tab), sg.Tab('Transform', transform_tab)]
     ])],
     [sg.Button('Save', key='-SAVE-')],
 ])
@@ -155,13 +216,36 @@ while True:
                      values['-ROTATION-'],
                      values['-SCALE-'],
                      values['-INVERT-'],
-                     values['-SEPIA-'])
+                     values['-SEPIA-'],
+                     values['-POSTERIZE-'],
+                     values['-SOLARIZE-'],
+                     values['-R_FACTOR-'],
+                     values['-G_FACTOR-'],
+                     values['-B_FACTOR-'])
         prev_values = values
 
     # if user pressed save button
     if event == '-SAVE-':
-        save_path = sg.popup_get_file('Save', save_as=True, no_window=True)
+        save_path = sg.popup_get_file('Save', save_as=True, no_window=True, file_types=(("PNG", "*.png"), ("JPEG", "*.jpg"), ("All Files", "*.*")))
         if save_path:
-            image.save(save_path + '.png', 'PNG')
+            # check extension
+            filename, file_extension = os.path.splitext(save_path)
+            if not file_extension:
+                # default to png
+                save_path += '.png'
+                file_extension = '.png'
+            
+            # save based on extension
+            if file_extension.lower() in ['.jpg', '.jpeg']:
+                # JPEG does not support alpha
+                if image.mode in ('RGBA', 'LA'):
+                    background = Image.new(image.mode[:-1], image.size, (255, 255, 255))
+                    background.paste(image, image.split()[-1])
+                    image_to_save = background
+                else:
+                    image_to_save = image
+                image_to_save.save(save_path, quality=95)
+            else:
+                image.save(save_path)
 
 win.close()
