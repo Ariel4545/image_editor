@@ -5,7 +5,7 @@ from io import BytesIO
 import os
 
 # function that take the original image and the values from the buttons to update the image
-def update_image(original, blur, contrast, brightness, color, sharpness, edge_enhance, detail, emboss, contour, flipx, flipy, rotation, scale, invert, sepia, posterize, solarize, r_factor, g_factor, b_factor):
+def update_image(original, blur, contrast, brightness, color, sharpness, edge_enhance, detail, emboss, contour, flipx, flipy, rotation, scale, crop_l, crop_r, crop_t, crop_b, invert, sepia, posterize, solarize, r_factor, g_factor, b_factor, temperature, grayscale, threshold):
     global image
     image = original.copy()
 
@@ -18,6 +18,17 @@ def update_image(original, blur, contrast, brightness, color, sharpness, edge_en
         image = ImageOps.mirror(image)
     if flipy:
         image = ImageOps.flip(image)
+
+    # apply crop
+    if crop_l > 0 or crop_r > 0 or crop_t > 0 or crop_b > 0:
+        w, h = image.size
+        left = int(w * (crop_l / 100))
+        top = int(h * (crop_t / 100))
+        right = int(w * (1 - (crop_r / 100)))
+        bottom = int(h * (1 - (crop_b / 100)))
+        # Ensure valid crop box
+        if right > left and bottom > top:
+            image = image.crop((left, top, right, bottom))
 
     # apply scale
     if scale != 100:
@@ -90,8 +101,30 @@ def update_image(original, blur, contrast, brightness, color, sharpness, edge_en
             gray = image.convert('L')
             image = ImageOps.colorize(gray, '#704214', '#C0C080')
 
-    # apply RGB balance
-    if r_factor != 1.0 or g_factor != 1.0 or b_factor != 1.0:
+    if grayscale:
+        image = ImageOps.grayscale(image)
+        # Convert back to RGB/RGBA so other filters work if needed, or keep as L
+        # Usually for display it's fine, but subsequent operations might expect RGB
+        if original.mode == 'RGBA':
+             image = image.convert('RGBA')
+        else:
+             image = image.convert('RGB')
+
+    # apply threshold (black and white)
+    if threshold < 255:
+        # Convert to grayscale first
+        gray_img = ImageOps.grayscale(image)
+        # Apply threshold
+        image = gray_img.point(lambda p: 255 if p > threshold else 0)
+        if original.mode == 'RGBA':
+             image = image.convert('RGBA')
+        else:
+             image = image.convert('RGB')
+
+    # apply RGB balance and Temperature
+    # Note: RGB balance might not work well if image was converted to grayscale/threshold above
+    # but we allow it for creative effects (tinting the B&W image)
+    if r_factor != 1.0 or g_factor != 1.0 or b_factor != 1.0 or temperature != 0:
         if image.mode == 'L':
             image = image.convert('RGB')
         
@@ -101,12 +134,26 @@ def update_image(original, blur, contrast, brightness, color, sharpness, edge_en
             r, g, b = image.split()
             a = None
         
-        if r_factor != 1.0:
-            r = r.point(lambda i: i * r_factor)
-        if g_factor != 1.0:
-            g = g.point(lambda i: i * g_factor)
-        if b_factor != 1.0:
-            b = b.point(lambda i: i * b_factor)
+        # Calculate temperature factors
+        # Temperature > 0: Warmer (More Red, Less Blue)
+        # Temperature < 0: Cooler (Less Red, More Blue)
+        temp_r = 0
+        temp_b = 0
+        if temperature != 0:
+            temp_r = (temperature / 100.0) * 0.2
+            temp_b = - (temperature / 100.0) * 0.2
+
+        # Apply factors
+        final_r_factor = r_factor + temp_r
+        final_g_factor = g_factor
+        final_b_factor = b_factor + temp_b
+
+        if final_r_factor != 1.0:
+            r = r.point(lambda i: i * final_r_factor)
+        if final_g_factor != 1.0:
+            g = g.point(lambda i: i * final_g_factor)
+        if final_b_factor != 1.0:
+            b = b.point(lambda i: i * final_b_factor)
             
         if a:
             image = Image.merge('RGBA', (r, g, b, a))
@@ -144,12 +191,14 @@ effects_tab = [
     [sg.Frame('Blur', layout=[[sg.Slider(range=(0, 10), orientation='h', key='-BLUR-')]])],
     [sg.Frame('Posterize', layout=[[sg.Slider(range=(1, 8), default_value=8, orientation='h', key='-POSTERIZE-')]])],
     [sg.Frame('Solarize', layout=[[sg.Slider(range=(0, 255), default_value=255, orientation='h', key='-SOLARIZE-')]])],
+    [sg.Frame('Threshold', layout=[[sg.Slider(range=(0, 255), default_value=255, orientation='h', key='-THRESHOLD-')]])],
 ]
 
 filters_tab = [
     [sg.Checkbox('Detail', key='-DETAIL-'), sg.Checkbox('Edge Enhance', key='-EDGE-')],
     [sg.Checkbox('Emboss', key='-EMBOSS-'), sg.Checkbox('Contour', key='-CONTOUR-')],
     [sg.Checkbox('Invert', key='-INVERT-'), sg.Checkbox('Sepia', key='-SEPIA-')],
+    [sg.Checkbox('Grayscale', key='-GRAYSCALE-')],
 ]
 
 adjustments_tab = [
@@ -159,6 +208,7 @@ adjustments_tab = [
 ]
 
 color_tab = [
+    [sg.Frame('Temperature', layout=[[sg.Slider(range=(-100, 100), default_value=0, orientation='h', key='-TEMPERATURE-')]])],
     [sg.Frame('Saturation', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-COLOR-')]])],
     [sg.Frame('Red', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-R_FACTOR-')]])],
     [sg.Frame('Green', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-G_FACTOR-')]])],
@@ -169,6 +219,12 @@ transform_tab = [
     [sg.Checkbox('Flip X', key='-FLIPX-'), sg.Checkbox('Flip Y', key='-FLIPY-')],
     [sg.Frame('Rotation', layout=[[sg.Slider(range=(0, 360), default_value=0, orientation='h', key='-ROTATION-')]])],
     [sg.Frame('Scale %', layout=[[sg.Slider(range=(10, 200), default_value=100, orientation='h', key='-SCALE-')]])],
+    [sg.Frame('Crop %', layout=[
+        [sg.Text('L'), sg.Slider(range=(0, 45), default_value=0, orientation='h', size=(10, 15), key='-CROP_L-'),
+         sg.Text('R'), sg.Slider(range=(0, 45), default_value=0, orientation='h', size=(10, 15), key='-CROP_R-')],
+        [sg.Text('T'), sg.Slider(range=(0, 45), default_value=0, orientation='h', size=(10, 15), key='-CROP_T-'),
+         sg.Text('B'), sg.Slider(range=(0, 45), default_value=0, orientation='h', size=(10, 15), key='-CROP_B-')]
+    ])],
 ]
 
 control_column = sg.Column([
@@ -215,13 +271,20 @@ while True:
                      values['-FLIPY-'],
                      values['-ROTATION-'],
                      values['-SCALE-'],
+                     values['-CROP_L-'],
+                     values['-CROP_R-'],
+                     values['-CROP_T-'],
+                     values['-CROP_B-'],
                      values['-INVERT-'],
                      values['-SEPIA-'],
                      values['-POSTERIZE-'],
                      values['-SOLARIZE-'],
                      values['-R_FACTOR-'],
                      values['-G_FACTOR-'],
-                     values['-B_FACTOR-'])
+                     values['-B_FACTOR-'],
+                     values['-TEMPERATURE-'],
+                     values['-GRAYSCALE-'],
+                     values['-THRESHOLD-'])
         prev_values = values
 
     # if user pressed save button
