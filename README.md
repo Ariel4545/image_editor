@@ -12,6 +12,7 @@ The editor is organized into five main tabs for easy access to all tools:
 *   **Blur**: Apply Gaussian blur to soften the image.
 *   **Posterize**: Reduce the number of colors for a poster-like effect.
 *   **Solarize**: Invert pixel values above a threshold.
+*   **Threshold**: Convert image to pure black and white based on intensity.
 
 ### 🖼️ Filters
 *   **Detail**: Enhance fine details.
@@ -20,6 +21,7 @@ The editor is organized into five main tabs for easy access to all tools:
 *   **Contour**: Extract and display the contours of the image.
 *   **Invert**: Invert colors (negative effect).
 *   **Sepia**: Apply a vintage sepia tone.
+*   **Grayscale**: Convert the image to shades of gray.
 
 ### 🛠️ Adjustments
 *   **Contrast**: Adjust the difference between light and dark areas.
@@ -27,6 +29,7 @@ The editor is organized into five main tabs for easy access to all tools:
 *   **Sharpness**: Sharpen the image to make it clearer.
 
 ### 🌈 Color
+*   **Temperature**: Adjust the warmth (red/blue balance) of the image.
 *   **Saturation**: Adjust color intensity (from black & white to vibrant).
 *   **RGB Balance**: Fine-tune Red, Green, and Blue channels individually.
 
@@ -34,6 +37,7 @@ The editor is organized into five main tabs for easy access to all tools:
 *   **Flip X / Y**: Mirror the image horizontally or vertically.
 *   **Rotation**: Rotate the image 360 degrees.
 *   **Scale**: Resize the image (10% - 200%).
+*   **Crop**: Crop the image from Left, Right, Top, and Bottom.
 
 ## Installation 📦
 
@@ -53,6 +57,6 @@ pip install Pillow PySimpleGUI
 
 ## Roadmap 🗺️
 
-*   [ ] Crop functionality
+*   [x] Crop functionality
 *   [ ] Undo/Redo support
 *   [ ] Batch processing
