@@ -10,6 +10,7 @@ The editor is organized into five main tabs for easy access to all tools:
 
 ### 🎨 Effects
 *   **Blur**: Apply Gaussian blur to soften the image.
+*   **Pixelate**: Pixelate the image for a retro or censored look.
 *   **Posterize**: Reduce the number of colors for a poster-like effect.
 *   **Solarize**: Invert pixel values above a threshold.
 *   **Threshold**: Convert image to pure black and white based on intensity.
@@ -26,6 +27,7 @@ The editor is organized into five main tabs for easy access to all tools:
 ### 🛠️ Adjustments
 *   **Contrast**: Adjust the difference between light and dark areas.
 *   **Brightness**: Make the image lighter or darker.
+*   **Gamma**: Adjust gamma correction for non-linear brightness control.
 *   **Sharpness**: Sharpen the image to make it clearer.
 
 ### 🌈 Color
@@ -38,6 +40,10 @@ The editor is organized into five main tabs for easy access to all tools:
 *   **Rotation**: Rotate the image 360 degrees.
 *   **Scale**: Resize the image (10% - 200%).
 *   **Crop**: Crop the image from Left, Right, Top, and Bottom.
+
+### ⚙️ Controls
+*   **Save**: Save your edited image as PNG or JPEG.
+*   **Reset**: Instantly revert all changes to default.
 
 ## Installation 📦
 
@@ -54,9 +60,11 @@ pip install Pillow PySimpleGUI
 2.  Select an image file when prompted.
 3.  Use the tabs to apply various effects and adjustments.
 4.  Click **Save** to save your edited image as a PNG or JPEG file.
+5.  Click **Reset** to clear all current edits.
 
 ## Roadmap 🗺️
 
 *   [x] Crop functionality
+*   [x] Reset button
 *   [ ] Undo/Redo support
 *   [ ] Batch processing
