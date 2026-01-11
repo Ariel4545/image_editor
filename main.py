@@ -5,7 +5,7 @@ from io import BytesIO
 import os
 
 # function that take the original image and the values from the buttons to update the image
-def update_image(original, blur, contrast, brightness, color, sharpness, edge_enhance, detail, emboss, contour, flipx, flipy, rotation, scale, crop_l, crop_r, crop_t, crop_b, invert, sepia, posterize, solarize, r_factor, g_factor, b_factor, temperature, grayscale, threshold):
+def update_image(original, blur, contrast, brightness, color, sharpness, edge_enhance, detail, emboss, contour, flipx, flipy, rotation, scale, crop_l, crop_r, crop_t, crop_b, invert, sepia, posterize, solarize, r_factor, g_factor, b_factor, temperature, grayscale, threshold, pixelate, gamma):
     global image
     image = original.copy()
 
@@ -41,6 +41,16 @@ def update_image(original, blur, contrast, brightness, color, sharpness, edge_en
         except AttributeError:
             resample = Image.LANCZOS
         image = image.resize((new_w, new_h), resample)
+
+    # apply pixelate
+    if pixelate > 1:
+        w, h = image.size
+        # Resize down
+        small_w = max(1, int(w / pixelate))
+        small_h = max(1, int(h / pixelate))
+        image = image.resize((small_w, small_h), resample=Image.NEAREST)
+        # Resize up
+        image = image.resize((w, h), resample=Image.NEAREST)
 
     # apply filters
     if blur > 0:
@@ -122,8 +132,6 @@ def update_image(original, blur, contrast, brightness, color, sharpness, edge_en
              image = image.convert('RGB')
 
     # apply RGB balance and Temperature
-    # Note: RGB balance might not work well if image was converted to grayscale/threshold above
-    # but we allow it for creative effects (tinting the B&W image)
     if r_factor != 1.0 or g_factor != 1.0 or b_factor != 1.0 or temperature != 0:
         if image.mode == 'L':
             image = image.convert('RGB')
@@ -135,8 +143,6 @@ def update_image(original, blur, contrast, brightness, color, sharpness, edge_en
             a = None
         
         # Calculate temperature factors
-        # Temperature > 0: Warmer (More Red, Less Blue)
-        # Temperature < 0: Cooler (Less Red, More Blue)
         temp_r = 0
         temp_b = 0
         if temperature != 0:
@@ -173,6 +179,23 @@ def update_image(original, blur, contrast, brightness, color, sharpness, edge_en
     if sharpness != 1.0:
         enhancer = ImageEnhance.Sharpness(image)
         image = enhancer.enhance(sharpness)
+        
+    # apply gamma
+    if gamma != 1.0:
+        inv_gamma = 1.0 / gamma
+        # build a lookup table
+        table = [int(((i / 255.0) ** inv_gamma) * 255) for i in range(256)]
+        if image.mode == 'L':
+            image = image.point(table)
+        elif image.mode == 'RGBA':
+            r, g, b, a = image.split()
+            r = r.point(table)
+            g = g.point(table)
+            b = b.point(table)
+            image = Image.merge('RGBA', (r, g, b, a))
+        else:
+            # RGB
+            image = image.point(table * 3)
 
     bio = BytesIO()
     image.save(bio, format='PNG')
@@ -189,6 +212,7 @@ if not image_path:
 # control layout
 effects_tab = [
     [sg.Frame('Blur', layout=[[sg.Slider(range=(0, 10), orientation='h', key='-BLUR-')]])],
+    [sg.Frame('Pixelate', layout=[[sg.Slider(range=(1, 50), default_value=1, orientation='h', key='-PIXELATE-')]])],
     [sg.Frame('Posterize', layout=[[sg.Slider(range=(1, 8), default_value=8, orientation='h', key='-POSTERIZE-')]])],
     [sg.Frame('Solarize', layout=[[sg.Slider(range=(0, 255), default_value=255, orientation='h', key='-SOLARIZE-')]])],
     [sg.Frame('Threshold', layout=[[sg.Slider(range=(0, 255), default_value=255, orientation='h', key='-THRESHOLD-')]])],
@@ -204,6 +228,7 @@ filters_tab = [
 adjustments_tab = [
     [sg.Frame('Contrast', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-CONTRAST-')]])],
     [sg.Frame('Brightness', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-BRIGHTNESS-')]])],
+    [sg.Frame('Gamma', layout=[[sg.Slider(range=(0.1, 3.0), default_value=1.0, resolution=0.1, orientation='h', key='-GAMMA-')]])],
     [sg.Frame('Sharpness', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-SHARPNESS-')]])],
 ]
 
@@ -231,7 +256,7 @@ control_column = sg.Column([
     [sg.TabGroup([
         [sg.Tab('Effects', effects_tab), sg.Tab('Filters', filters_tab), sg.Tab('Adjustments', adjustments_tab), sg.Tab('Color', color_tab), sg.Tab('Transform', transform_tab)]
     ])],
-    [sg.Button('Save', key='-SAVE-')],
+    [sg.Button('Save', key='-SAVE-'), sg.Button('Reset', key='-RESET-')],
 ])
 
 # image layout
@@ -255,6 +280,40 @@ while True:
     if event == sg.WIN_CLOSED:
         break
     
+    if event == '-RESET-':
+        # Reset all values to defaults
+        win['-BLUR-'].update(0)
+        win['-PIXELATE-'].update(1)
+        win['-POSTERIZE-'].update(8)
+        win['-SOLARIZE-'].update(255)
+        win['-THRESHOLD-'].update(255)
+        win['-DETAIL-'].update(False)
+        win['-EDGE-'].update(False)
+        win['-EMBOSS-'].update(False)
+        win['-CONTOUR-'].update(False)
+        win['-INVERT-'].update(False)
+        win['-SEPIA-'].update(False)
+        win['-GRAYSCALE-'].update(False)
+        win['-CONTRAST-'].update(1.0)
+        win['-BRIGHTNESS-'].update(1.0)
+        win['-GAMMA-'].update(1.0)
+        win['-SHARPNESS-'].update(1.0)
+        win['-TEMPERATURE-'].update(0)
+        win['-COLOR-'].update(1.0)
+        win['-R_FACTOR-'].update(1.0)
+        win['-G_FACTOR-'].update(1.0)
+        win['-B_FACTOR-'].update(1.0)
+        win['-FLIPX-'].update(False)
+        win['-FLIPY-'].update(False)
+        win['-ROTATION-'].update(0)
+        win['-SCALE-'].update(100)
+        win['-CROP_L-'].update(0)
+        win['-CROP_R-'].update(0)
+        win['-CROP_T-'].update(0)
+        win['-CROP_B-'].update(0)
+        # Force update loop to pick up changes
+        values = win.read(timeout=0)[1]
+
     if values != prev_values:
         # passing the buttons arguments in real time
         update_image(original,
@@ -284,7 +343,9 @@ while True:
                      values['-B_FACTOR-'],
                      values['-TEMPERATURE-'],
                      values['-GRAYSCALE-'],
-                     values['-THRESHOLD-'])
+                     values['-THRESHOLD-'],
+                     values['-PIXELATE-'],
+                     values['-GAMMA-'])
         prev_values = values
 
     # if user pressed save button
