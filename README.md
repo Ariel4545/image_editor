@@ -6,7 +6,7 @@ A simple yet powerful image editor built with Python, using **PySimpleGUI** for 
 
 ## Features ✨
 
-The editor is organized into five main tabs for easy access to all tools:
+The editor is organized into six main tabs for easy access to all tools:
 
 ### 🎨 Effects
 *   **Blur**: Apply Gaussian blur to soften the image.
@@ -14,6 +14,8 @@ The editor is organized into five main tabs for easy access to all tools:
 *   **Posterize**: Reduce the number of colors for a poster-like effect.
 *   **Solarize**: Invert pixel values above a threshold.
 *   **Threshold**: Convert image to pure black and white based on intensity.
+*   **Vignette**: Add a dark gradient to the corners to focus on the center.
+*   **Sepia**: Apply a vintage sepia tone with adjustable intensity.
 
 ### 🖼️ Filters
 *   **Detail**: Enhance fine details.
@@ -21,7 +23,6 @@ The editor is organized into five main tabs for easy access to all tools:
 *   **Emboss**: Apply an emboss effect for a 3D look.
 *   **Contour**: Extract and display the contours of the image.
 *   **Invert**: Invert colors (negative effect).
-*   **Sepia**: Apply a vintage sepia tone.
 *   **Grayscale**: Convert the image to shades of gray.
 
 ### 🛠️ Adjustments
@@ -32,6 +33,7 @@ The editor is organized into five main tabs for easy access to all tools:
 
 ### 🌈 Color
 *   **Temperature**: Adjust the warmth (red/blue balance) of the image.
+*   **Hue**: Shift the hue of the image to change colors completely.
 *   **Saturation**: Adjust color intensity (from black & white to vibrant).
 *   **RGB Balance**: Fine-tune Red, Green, and Blue channels individually.
 
@@ -41,7 +43,14 @@ The editor is organized into five main tabs for easy access to all tools:
 *   **Scale**: Resize the image (10% - 200%).
 *   **Crop**: Crop the image from Left, Right, Top, and Bottom.
 
+### ✍️ Text
+*   **Content**: Add custom text overlay.
+*   **Font Settings**: Adjust Size, Opacity, and Color.
+*   **Position**: Place text precisely using X and Y coordinates.
+
 ### ⚙️ Controls
+*   **Undo / Redo**: Revert or re-apply changes (History support).
+*   **Presets**: Save and Load your favorite filter settings.
 *   **Save**: Save your edited image as PNG or JPEG.
 *   **Reset**: Instantly revert all changes to default.
 
@@ -59,12 +68,15 @@ pip install Pillow PySimpleGUI
 1.  Run the `main.py` script.
 2.  Select an image file when prompted.
 3.  Use the tabs to apply various effects and adjustments.
-4.  Click **Save** to save your edited image as a PNG or JPEG file.
-5.  Click **Reset** to clear all current edits.
+4.  Use **Undo/Redo** to experiment.
+5.  Save your settings with **Save Preset** if you like them.
+6.  Click **Save** to save your edited image as a PNG or JPEG file.
 
 ## Roadmap 🗺️
 
 *   [x] Crop functionality
 *   [x] Reset button
-*   [ ] Undo/Redo support
+*   [x] Undo/Redo support
+*   [x] Text Overlay
+*   [x] Save/Load Presets
 *   [ ] Batch processing
