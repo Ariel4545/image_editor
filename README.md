@@ -51,6 +51,7 @@ The editor is organized into six main tabs for easy access to all tools:
 ### ⚙️ Controls
 *   **Undo / Redo**: Revert or re-apply changes (History support).
 *   **Presets**: Save and Load your favorite filter settings.
+*   **Batch Process**: Apply current settings to an entire folder of images.
 *   **Save**: Save your edited image as PNG or JPEG.
 *   **Reset**: Instantly revert all changes to default.
 
@@ -70,7 +71,8 @@ pip install Pillow PySimpleGUI
 3.  Use the tabs to apply various effects and adjustments.
 4.  Use **Undo/Redo** to experiment.
 5.  Save your settings with **Save Preset** if you like them.
-6.  Click **Save** to save your edited image as a PNG or JPEG file.
+6.  Use **Batch Process** to apply the current look to multiple images.
+7.  Click **Save** to save your edited image as a PNG or JPEG file.
 
 ## Roadmap 🗺️
 
@@ -79,4 +81,4 @@ pip install Pillow PySimpleGUI
 *   [x] Undo/Redo support
 *   [x] Text Overlay
 *   [x] Save/Load Presets
-*   [ ] Batch processing
+*   [x] Batch processing
