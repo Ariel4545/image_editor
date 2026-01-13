@@ -5,9 +5,8 @@ from io import BytesIO
 import os
 import json
 
-# function that take the original image and the values from the buttons to update the image
-def update_image(original, values):
-    global image
+# function that applies effects to an image based on values
+def apply_effects(original, values):
     image = original.copy()
 
     # Extract values
@@ -340,6 +339,13 @@ def update_image(original, values):
             image = image.convert('RGBA')
             
         image = Image.alpha_composite(image, txt_layer)
+        
+    return image
+
+# function that take the original image and the values from the buttons to update the image
+def update_image(original, values):
+    global image
+    image = apply_effects(original, values)
 
     bio = BytesIO()
     image.save(bio, format='PNG')
@@ -417,7 +423,7 @@ control_column = sg.Column([
         [sg.Tab('Effects', effects_tab), sg.Tab('Filters', filters_tab), sg.Tab('Adjustments', adjustments_tab), sg.Tab('Color', color_tab), sg.Tab('Transform', transform_tab), sg.Tab('Text', text_tab)]
     ])],
     [sg.Button('Save', key='-SAVE-'), sg.Button('Reset', key='-RESET-'), sg.Button('Undo', key='-UNDO-'), sg.Button('Redo', key='-REDO-')],
-    [sg.Button('Save Preset', key='-SAVE_PRESET-'), sg.Button('Load Preset', key='-LOAD_PRESET-')]
+    [sg.Button('Save Preset', key='-SAVE_PRESET-'), sg.Button('Load Preset', key='-LOAD_PRESET-'), sg.Button('Batch Process', key='-BATCH-')]
 ])
 
 # image layout
@@ -570,6 +576,46 @@ while True:
                 
             except Exception as e:
                 sg.popup_error(f'Error loading preset: {e}')
+
+    # Handle Batch Process
+    if event == '-BATCH-':
+        source_folder = sg.popup_get_folder('Select Source Folder', no_window=True)
+        if source_folder:
+            dest_folder = sg.popup_get_folder('Select Destination Folder', no_window=True)
+            if dest_folder:
+                # Get list of files
+                try:
+                    files = os.listdir(source_folder)
+                    count = 0
+                    for filename in files:
+                        lower_name = filename.lower()
+                        if lower_name.endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
+                            try:
+                                file_path = os.path.join(source_folder, filename)
+                                img = Image.open(file_path)
+                                
+                                # Apply effects
+                                processed_img = apply_effects(img, values)
+                                
+                                # Save
+                                save_path = os.path.join(dest_folder, filename)
+                                # Handle format
+                                if lower_name.endswith(('.jpg', '.jpeg')):
+                                     if processed_img.mode in ('RGBA', 'LA'):
+                                        background = Image.new(processed_img.mode[:-1], processed_img.size, (255, 255, 255))
+                                        background.paste(processed_img, processed_img.split()[-1])
+                                        processed_img = background
+                                     processed_img.save(save_path, quality=95)
+                                else:
+                                    processed_img.save(save_path)
+                                
+                                count += 1
+                            except Exception as e:
+                                print(f"Failed to process {filename}: {e}")
+                    
+                    sg.popup(f'Batch processing complete! Processed {count} images.')
+                except Exception as e:
+                    sg.popup_error(f'Error reading folder: {e}')
 
     if values != prev_values:
         # New change detected
