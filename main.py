@@ -4,6 +4,41 @@ import PySimpleGUI as sg
 from io import BytesIO
 import os
 import json
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+# Helper functions for dialogs using Tkinter directly
+def get_file_path(title, save_as=False, file_types=None, default_extension=None):
+    root = tk.Tk()
+    root.withdraw() # Hide the main window
+    
+    # Default file types if none provided
+    if not file_types:
+        file_types = [("All Files", "*.*")]
+
+    if save_as:
+        path = filedialog.asksaveasfilename(title=title, filetypes=file_types, defaultextension=default_extension)
+    else:
+        path = filedialog.askopenfilename(title=title, filetypes=file_types)
+    
+    root.destroy()
+    return path
+
+def get_folder_path(title):
+    root = tk.Tk()
+    root.withdraw()
+    path = filedialog.askdirectory(title=title)
+    root.destroy()
+    return path
+
+def show_message(title, message, is_error=False):
+    root = tk.Tk()
+    root.withdraw()
+    if is_error:
+        messagebox.showerror(title, message)
+    else:
+        messagebox.showinfo(title, message)
+    root.destroy()
 
 # function that applies effects to an image based on values
 def apply_effects(original, values):
@@ -41,6 +76,12 @@ def apply_effects(original, values):
     gamma = values.get('-GAMMA-', 1.0)
     hue = values.get('-HUE-', 0)
     vignette = values.get('-VIGNETTE-', 0)
+    
+    # New features
+    auto_contrast = values.get('-AUTO_CONTRAST-', False)
+    equalize = values.get('-EQUALIZE-', False)
+    border_size = int(values.get('-BORDER_SIZE-', 0))
+    border_color_hex = values.get('-BORDER_COLOR-', '#FFFFFF')
 
     # Text values
     text_content = values.get('-TEXT_CONTENT-', '')
@@ -167,6 +208,28 @@ def apply_effects(original, values):
              image = image.convert('RGBA')
         else:
              image = image.convert('RGB')
+
+    # apply auto contrast
+    if auto_contrast:
+        if image.mode == 'RGBA':
+            r, g, b, a = image.split()
+            rgb = Image.merge('RGB', (r, g, b))
+            rgb = ImageOps.autocontrast(rgb)
+            r, g, b = rgb.split()
+            image = Image.merge('RGBA', (r, g, b, a))
+        else:
+            image = ImageOps.autocontrast(image)
+
+    # apply equalize
+    if equalize:
+        if image.mode == 'RGBA':
+            r, g, b, a = image.split()
+            rgb = Image.merge('RGB', (r, g, b))
+            rgb = ImageOps.equalize(rgb)
+            r, g, b = rgb.split()
+            image = Image.merge('RGBA', (r, g, b, a))
+        else:
+            image = ImageOps.equalize(image)
 
     # apply threshold (black and white)
     if threshold < 255:
@@ -296,6 +359,20 @@ def apply_effects(original, values):
         black_layer = Image.new('RGB', (w, h), (0, 0, 0))
         image.paste(black_layer, (0, 0), mask_inv)
 
+    # apply border
+    if border_size > 0:
+        try:
+            r, g, b = ImageColor.getrgb(border_color_hex)
+        except:
+            r, g, b = (255, 255, 255)
+            
+        if image.mode == 'RGBA':
+            border_color = (r, g, b, 255)
+        else:
+            border_color = (r, g, b)
+            
+        image = ImageOps.expand(image, border=border_size, fill=border_color)
+
     # apply text overlay
     if text_content:
         try:
@@ -354,7 +431,7 @@ def update_image(original, values):
 
 
 # open file selection
-image_path = sg.popup_get_file('Open', no_window=True)
+image_path = get_file_path('Open')
 
 if not image_path:
     exit()
@@ -373,8 +450,8 @@ effects_tab = [
 filters_tab = [
     [sg.Checkbox('Detail', key='-DETAIL-'), sg.Checkbox('Edge Enhance', key='-EDGE-')],
     [sg.Checkbox('Emboss', key='-EMBOSS-'), sg.Checkbox('Contour', key='-CONTOUR-')],
-    [sg.Checkbox('Invert', key='-INVERT-')],
-    [sg.Checkbox('Grayscale', key='-GRAYSCALE-')],
+    [sg.Checkbox('Invert', key='-INVERT-'), sg.Checkbox('Grayscale', key='-GRAYSCALE-')],
+    [sg.Checkbox('Auto Contrast', key='-AUTO_CONTRAST-'), sg.Checkbox('Equalize', key='-EQUALIZE-')],
 ]
 
 adjustments_tab = [
@@ -405,6 +482,13 @@ transform_tab = [
     ])],
 ]
 
+border_tab = [
+    [sg.Frame('Settings', layout=[
+        [sg.Text('Size (px)'), sg.Slider(range=(0, 100), default_value=0, orientation='h', key='-BORDER_SIZE-')],
+        [sg.Text('Color'), sg.Input(default_text='#FFFFFF', size=(10, 1), key='-BORDER_COLOR-', enable_events=True), sg.ColorChooserButton('Pick', target='-BORDER_COLOR-')]
+    ])]
+]
+
 text_tab = [
     [sg.Text('Text:'), sg.Input(key='-TEXT_CONTENT-', enable_events=True)],
     [sg.Frame('Font Settings', layout=[
@@ -420,7 +504,7 @@ text_tab = [
 
 control_column = sg.Column([
     [sg.TabGroup([
-        [sg.Tab('Effects', effects_tab), sg.Tab('Filters', filters_tab), sg.Tab('Adjustments', adjustments_tab), sg.Tab('Color', color_tab), sg.Tab('Transform', transform_tab), sg.Tab('Text', text_tab)]
+        [sg.Tab('Effects', effects_tab), sg.Tab('Filters', filters_tab), sg.Tab('Adjustments', adjustments_tab), sg.Tab('Color', color_tab), sg.Tab('Transform', transform_tab), sg.Tab('Border', border_tab), sg.Tab('Text', text_tab)]
     ])],
     [sg.Button('Save', key='-SAVE-'), sg.Button('Reset', key='-RESET-'), sg.Button('Undo', key='-UNDO-'), sg.Button('Redo', key='-REDO-')],
     [sg.Button('Save Preset', key='-SAVE_PRESET-'), sg.Button('Load Preset', key='-LOAD_PRESET-'), sg.Button('Batch Process', key='-BATCH-')]
@@ -447,11 +531,12 @@ history_index = -1
 
 SETTINGS_KEYS = [
     '-BLUR-', '-PIXELATE-', '-POSTERIZE-', '-SOLARIZE-', '-THRESHOLD-', '-VIGNETTE-', '-SEPIA-',
-    '-DETAIL-', '-EDGE-', '-EMBOSS-', '-CONTOUR-', '-INVERT-', '-GRAYSCALE-',
+    '-DETAIL-', '-EDGE-', '-EMBOSS-', '-CONTOUR-', '-INVERT-', '-GRAYSCALE-', '-AUTO_CONTRAST-', '-EQUALIZE-',
     '-CONTRAST-', '-BRIGHTNESS-', '-GAMMA-', '-SHARPNESS-',
     '-TEMPERATURE-', '-HUE-', '-COLOR-', '-R_FACTOR-', '-G_FACTOR-', '-B_FACTOR-',
     '-FLIPX-', '-FLIPY-', '-ROTATION-', '-SCALE-',
     '-CROP_L-', '-CROP_R-', '-CROP_T-', '-CROP_B-',
+    '-BORDER_SIZE-', '-BORDER_COLOR-',
     '-TEXT_CONTENT-', '-TEXT_SIZE-', '-TEXT_OPACITY-', '-TEXT_COLOR-', '-TEXT_X-', '-TEXT_Y-'
 ]
 
@@ -475,6 +560,8 @@ while True:
         win['-CONTOUR-'].update(False)
         win['-INVERT-'].update(False)
         win['-GRAYSCALE-'].update(False)
+        win['-AUTO_CONTRAST-'].update(False)
+        win['-EQUALIZE-'].update(False)
         win['-CONTRAST-'].update(1.0)
         win['-BRIGHTNESS-'].update(1.0)
         win['-GAMMA-'].update(1.0)
@@ -493,6 +580,8 @@ while True:
         win['-CROP_R-'].update(0)
         win['-CROP_T-'].update(0)
         win['-CROP_B-'].update(0)
+        win['-BORDER_SIZE-'].update(0)
+        win['-BORDER_COLOR-'].update('#FFFFFF')
         
         # Reset Text Tab
         win['-TEXT_CONTENT-'].update('')
@@ -537,22 +626,19 @@ while True:
             
     # Handle Save Preset
     if event == '-SAVE_PRESET-':
-        preset_path = sg.popup_get_file('Save Preset', save_as=True, no_window=True, file_types=(("JSON", "*.json"),))
+        preset_path = get_file_path('Save Preset', save_as=True, file_types=[("JSON", "*.json")], default_extension=".json")
         if preset_path:
-            if not preset_path.lower().endswith('.json'):
-                preset_path += '.json'
-            
             data_to_save = {k: values[k] for k in SETTINGS_KEYS if k in values}
             try:
                 with open(preset_path, 'w') as f:
                     json.dump(data_to_save, f, indent=4)
-                sg.popup('Preset saved successfully!')
+                show_message('Success', 'Preset saved successfully!')
             except Exception as e:
-                sg.popup_error(f'Error saving preset: {e}')
+                show_message('Error', f'Error saving preset: {e}', is_error=True)
 
     # Handle Load Preset
     if event == '-LOAD_PRESET-':
-        preset_path = sg.popup_get_file('Load Preset', no_window=True, file_types=(("JSON", "*.json"),))
+        preset_path = get_file_path('Load Preset', file_types=[("JSON", "*.json")])
         if preset_path:
             try:
                 with open(preset_path, 'r') as f:
@@ -575,13 +661,13 @@ while True:
                 history_index += 1
                 
             except Exception as e:
-                sg.popup_error(f'Error loading preset: {e}')
+                show_message('Error', f'Error loading preset: {e}', is_error=True)
 
     # Handle Batch Process
     if event == '-BATCH-':
-        source_folder = sg.popup_get_folder('Select Source Folder', no_window=True)
+        source_folder = get_folder_path('Select Source Folder')
         if source_folder:
-            dest_folder = sg.popup_get_folder('Select Destination Folder', no_window=True)
+            dest_folder = get_folder_path('Select Destination Folder')
             if dest_folder:
                 # Get list of files
                 try:
@@ -613,9 +699,9 @@ while True:
                             except Exception as e:
                                 print(f"Failed to process {filename}: {e}")
                     
-                    sg.popup(f'Batch processing complete! Processed {count} images.')
+                    show_message('Success', f'Batch processing complete! Processed {count} images.')
                 except Exception as e:
-                    sg.popup_error(f'Error reading folder: {e}')
+                    show_message('Error', f'Error reading folder: {e}', is_error=True)
 
     if values != prev_values:
         # New change detected
@@ -637,7 +723,7 @@ while True:
 
     # if user pressed save button
     if event == '-SAVE-':
-        save_path = sg.popup_get_file('Save', save_as=True, no_window=True, file_types=(("PNG", "*.png"), ("JPEG", "*.jpg"), ("All Files", "*.*")))
+        save_path = get_file_path('Save', save_as=True, file_types=[("PNG", "*.png"), ("JPEG", "*.jpg"), ("All Files", "*.*")], default_extension=".png")
         if save_path:
             # check extension
             filename, file_extension = os.path.splitext(save_path)
