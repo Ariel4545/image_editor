@@ -6,7 +6,7 @@ A simple yet powerful image editor built with Python, using **PySimpleGUI** for 
 
 ## Features ✨
 
-The editor is organized into six main tabs for easy access to all tools:
+The editor is organized into seven main tabs for easy access to all tools:
 
 ### 🎨 Effects
 *   **Blur**: Apply Gaussian blur to soften the image.
@@ -24,6 +24,8 @@ The editor is organized into six main tabs for easy access to all tools:
 *   **Contour**: Extract and display the contours of the image.
 *   **Invert**: Invert colors (negative effect).
 *   **Grayscale**: Convert the image to shades of gray.
+*   **Auto Contrast**: Automatically adjust contrast.
+*   **Equalize**: Apply histogram equalization.
 
 ### 🛠️ Adjustments
 *   **Contrast**: Adjust the difference between light and dark areas.
@@ -42,6 +44,10 @@ The editor is organized into six main tabs for easy access to all tools:
 *   **Rotation**: Rotate the image 360 degrees.
 *   **Scale**: Resize the image (10% - 200%).
 *   **Crop**: Crop the image from Left, Right, Top, and Bottom.
+
+### 🖼️ Border
+*   **Size**: Add a solid border around the image.
+*   **Color**: Customize the border color.
 
 ### ✍️ Text
 *   **Content**: Add custom text overlay.
@@ -82,3 +88,5 @@ pip install Pillow PySimpleGUI
 *   [x] Text Overlay
 *   [x] Save/Load Presets
 *   [x] Batch processing
+*   [x] Auto-enhancement tools
+*   [x] Border tool
