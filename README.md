@@ -2,7 +2,7 @@
 
 # Image Editor
 
-A simple yet powerful image editor built with Python, using **PySimpleGUI** for the interface and **Pillow** for image processing.
+A simple yet powerful image editor built with Python, using **Tkinter** for the interface and **Pillow** for image processing.
 
 ## Features ✨
 
@@ -42,6 +42,7 @@ The editor is organized into seven main tabs for easy access to all tools:
 ### 🔄 Transform
 *   **Flip X / Y**: Mirror the image horizontally or vertically.
 *   **Rotation**: Rotate the image 360 degrees.
+    *   **Quick Rotate**: Buttons for -90° and +90° rotation.
 *   **Scale**: Resize the image (10% - 200%).
 *   **Crop**: Crop the image from Left, Right, Top, and Bottom.
 
@@ -60,6 +61,7 @@ The editor is organized into seven main tabs for easy access to all tools:
 *   **Batch Process**: Apply current settings to an entire folder of images.
 *   **Save**: Save your edited image as PNG or JPEG.
 *   **Reset**: Instantly revert all changes to default.
+*   **About**: View application version and dependency information.
 
 ## Installation 📦
 
@@ -67,8 +69,10 @@ The editor is organized into seven main tabs for easy access to all tools:
 2.  Install the required dependencies:
 
 ```bash
-pip install Pillow PySimpleGUI
+pip install Pillow
 ```
+
+*Note: Tkinter is usually included with Python installations.*
 
 ## Usage 🚀
 
@@ -90,3 +94,5 @@ pip install Pillow PySimpleGUI
 *   [x] Batch processing
 *   [x] Auto-enhancement tools
 *   [x] Border tool
+*   [x] High DPI Support
+*   [x] Migrate to Tkinter (Remove PySimpleGUI dependency)
