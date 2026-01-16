@@ -1,16 +1,28 @@
 # imports
-from PIL import Image, ImageFilter, ImageOps, ImageEnhance, ImageDraw, ImageFont, ImageColor
-import PySimpleGUI as sg
+from PIL import Image, ImageFilter, ImageOps, ImageEnhance, ImageDraw, ImageFont, ImageColor, ImageTk
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk, colorchooser
 from io import BytesIO
 import os
 import json
-import tkinter as tk
-from tkinter import filedialog, messagebox
+import ctypes
+import platform
+
+# High DPI Awareness (Windows)
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    pass
 
 # Helper functions for dialogs using Tkinter directly
 def get_file_path(title, save_as=False, file_types=None, default_extension=None):
-    root = tk.Tk()
-    root.withdraw() # Hide the main window
+    if tk._default_root is None:
+        root = tk.Tk()
+        root.withdraw()
+        should_destroy = True
+    else:
+        root = tk._default_root
+        should_destroy = False
     
     # Default file types if none provided
     if not file_types:
@@ -21,24 +33,30 @@ def get_file_path(title, save_as=False, file_types=None, default_extension=None)
     else:
         path = filedialog.askopenfilename(title=title, filetypes=file_types)
     
-    root.destroy()
+    if should_destroy:
+        root.destroy()
     return path
 
 def get_folder_path(title):
-    root = tk.Tk()
-    root.withdraw()
+    if tk._default_root is None:
+        root = tk.Tk()
+        root.withdraw()
+        should_destroy = True
+    else:
+        root = tk._default_root
+        should_destroy = False
+        
     path = filedialog.askdirectory(title=title)
-    root.destroy()
+    
+    if should_destroy:
+        root.destroy()
     return path
 
 def show_message(title, message, is_error=False):
-    root = tk.Tk()
-    root.withdraw()
     if is_error:
         messagebox.showerror(title, message)
     else:
         messagebox.showinfo(title, message)
-    root.destroy()
 
 # function that applies effects to an image based on values
 def apply_effects(original, values):
@@ -419,330 +437,417 @@ def apply_effects(original, values):
         
     return image
 
-# function that take the original image and the values from the buttons to update the image
-def update_image(original, values):
-    global image
-    image = apply_effects(original, values)
-
-    bio = BytesIO()
-    image.save(bio, format='PNG')
-
-    win['-IMAGE-'].update(data=bio.getvalue())
-
-
-# open file selection
-image_path = get_file_path('Open')
-
-if not image_path:
-    exit()
-
-# control layout
-effects_tab = [
-    [sg.Frame('Blur', layout=[[sg.Slider(range=(0, 10), orientation='h', key='-BLUR-')]])],
-    [sg.Frame('Pixelate', layout=[[sg.Slider(range=(1, 50), default_value=1, orientation='h', key='-PIXELATE-')]])],
-    [sg.Frame('Posterize', layout=[[sg.Slider(range=(1, 8), default_value=8, orientation='h', key='-POSTERIZE-')]])],
-    [sg.Frame('Solarize', layout=[[sg.Slider(range=(0, 255), default_value=255, orientation='h', key='-SOLARIZE-')]])],
-    [sg.Frame('Threshold', layout=[[sg.Slider(range=(0, 255), default_value=255, orientation='h', key='-THRESHOLD-')]])],
-    [sg.Frame('Vignette', layout=[[sg.Slider(range=(0, 100), default_value=0, orientation='h', key='-VIGNETTE-')]])],
-    [sg.Frame('Sepia', layout=[[sg.Slider(range=(0, 100), default_value=0, orientation='h', key='-SEPIA-')]])],
-]
-
-filters_tab = [
-    [sg.Checkbox('Detail', key='-DETAIL-'), sg.Checkbox('Edge Enhance', key='-EDGE-')],
-    [sg.Checkbox('Emboss', key='-EMBOSS-'), sg.Checkbox('Contour', key='-CONTOUR-')],
-    [sg.Checkbox('Invert', key='-INVERT-'), sg.Checkbox('Grayscale', key='-GRAYSCALE-')],
-    [sg.Checkbox('Auto Contrast', key='-AUTO_CONTRAST-'), sg.Checkbox('Equalize', key='-EQUALIZE-')],
-]
-
-adjustments_tab = [
-    [sg.Frame('Contrast', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-CONTRAST-')]])],
-    [sg.Frame('Brightness', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-BRIGHTNESS-')]])],
-    [sg.Frame('Gamma', layout=[[sg.Slider(range=(0.1, 3.0), default_value=1.0, resolution=0.1, orientation='h', key='-GAMMA-')]])],
-    [sg.Frame('Sharpness', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-SHARPNESS-')]])],
-]
-
-color_tab = [
-    [sg.Frame('Temperature', layout=[[sg.Slider(range=(-100, 100), default_value=0, orientation='h', key='-TEMPERATURE-')]])],
-    [sg.Frame('Hue', layout=[[sg.Slider(range=(-180, 180), default_value=0, orientation='h', key='-HUE-')]])],
-    [sg.Frame('Saturation', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-COLOR-')]])],
-    [sg.Frame('Red', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-R_FACTOR-')]])],
-    [sg.Frame('Green', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-G_FACTOR-')]])],
-    [sg.Frame('Blue', layout=[[sg.Slider(range=(0.0, 2.0), default_value=1.0, resolution=0.1, orientation='h', key='-B_FACTOR-')]])],
-]
-
-transform_tab = [
-    [sg.Checkbox('Flip X', key='-FLIPX-'), sg.Checkbox('Flip Y', key='-FLIPY-')],
-    [sg.Frame('Rotation', layout=[[sg.Slider(range=(0, 360), default_value=0, orientation='h', key='-ROTATION-')]])],
-    [sg.Frame('Scale %', layout=[[sg.Slider(range=(10, 200), default_value=100, orientation='h', key='-SCALE-')]])],
-    [sg.Frame('Crop %', layout=[
-        [sg.Text('L'), sg.Slider(range=(0, 45), default_value=0, orientation='h', size=(10, 15), key='-CROP_L-'),
-         sg.Text('R'), sg.Slider(range=(0, 45), default_value=0, orientation='h', size=(10, 15), key='-CROP_R-')],
-        [sg.Text('T'), sg.Slider(range=(0, 45), default_value=0, orientation='h', size=(10, 15), key='-CROP_T-'),
-         sg.Text('B'), sg.Slider(range=(0, 45), default_value=0, orientation='h', size=(10, 15), key='-CROP_B-')]
-    ])],
-]
-
-border_tab = [
-    [sg.Frame('Settings', layout=[
-        [sg.Text('Size (px)'), sg.Slider(range=(0, 100), default_value=0, orientation='h', key='-BORDER_SIZE-')],
-        [sg.Text('Color'), sg.Input(default_text='#FFFFFF', size=(10, 1), key='-BORDER_COLOR-', enable_events=True), sg.ColorChooserButton('Pick', target='-BORDER_COLOR-')]
-    ])]
-]
-
-text_tab = [
-    [sg.Text('Text:'), sg.Input(key='-TEXT_CONTENT-', enable_events=True)],
-    [sg.Frame('Font Settings', layout=[
-        [sg.Text('Size'), sg.Slider(range=(10, 200), default_value=20, orientation='h', key='-TEXT_SIZE-')],
-        [sg.Text('Opacity'), sg.Slider(range=(0, 255), default_value=255, orientation='h', key='-TEXT_OPACITY-')],
-        [sg.Text('Color'), sg.Input(default_text='#FFFFFF', size=(10, 1), key='-TEXT_COLOR-', enable_events=True), sg.ColorChooserButton('Pick', target='-TEXT_COLOR-')]
-    ])],
-    [sg.Frame('Position %', layout=[
-        [sg.Text('X'), sg.Slider(range=(0, 100), default_value=50, orientation='h', key='-TEXT_X-')],
-        [sg.Text('Y'), sg.Slider(range=(0, 100), default_value=50, orientation='h', key='-TEXT_Y-')]
-    ])]
-]
-
-control_column = sg.Column([
-    [sg.TabGroup([
-        [sg.Tab('Effects', effects_tab), sg.Tab('Filters', filters_tab), sg.Tab('Adjustments', adjustments_tab), sg.Tab('Color', color_tab), sg.Tab('Transform', transform_tab), sg.Tab('Border', border_tab), sg.Tab('Text', text_tab)]
-    ])],
-    [sg.Button('Save', key='-SAVE-'), sg.Button('Reset', key='-RESET-'), sg.Button('Undo', key='-UNDO-'), sg.Button('Redo', key='-REDO-')],
-    [sg.Button('Save Preset', key='-SAVE_PRESET-'), sg.Button('Load Preset', key='-LOAD_PRESET-'), sg.Button('Batch Process', key='-BATCH-')]
-])
-
-# image layout
-image_column = sg.Column([[sg.Image(image_path, key='-IMAGE-')]])
-
-# combination of the columns to make the full layout
-layout = [
-    [control_column, image_column]
-]
-
-# open the original selected image
-original = Image.open(image_path)
-
-# create the window
-win = sg.Window('IMAGE EDITOR', layout)
-
-# app loop
-prev_values = None
+# Global state
+gui_vars = {}
+defaults = {}
+original_image = None
+current_image = None
 history = []
 history_index = -1
+prev_values = {}
+image_label = None
 
-SETTINGS_KEYS = [
-    '-BLUR-', '-PIXELATE-', '-POSTERIZE-', '-SOLARIZE-', '-THRESHOLD-', '-VIGNETTE-', '-SEPIA-',
-    '-DETAIL-', '-EDGE-', '-EMBOSS-', '-CONTOUR-', '-INVERT-', '-GRAYSCALE-', '-AUTO_CONTRAST-', '-EQUALIZE-',
-    '-CONTRAST-', '-BRIGHTNESS-', '-GAMMA-', '-SHARPNESS-',
-    '-TEMPERATURE-', '-HUE-', '-COLOR-', '-R_FACTOR-', '-G_FACTOR-', '-B_FACTOR-',
-    '-FLIPX-', '-FLIPY-', '-ROTATION-', '-SCALE-',
-    '-CROP_L-', '-CROP_R-', '-CROP_T-', '-CROP_B-',
-    '-BORDER_SIZE-', '-BORDER_COLOR-',
-    '-TEXT_CONTENT-', '-TEXT_SIZE-', '-TEXT_OPACITY-', '-TEXT_COLOR-', '-TEXT_X-', '-TEXT_Y-'
-]
+def get_values():
+    return {k: v.get() for k, v in gui_vars.items()}
 
-while True:
-    event, values = win.read(timeout=100)
-    if event == sg.WIN_CLOSED:
-        break
+def update_image(original, values=None):
+    global current_image
+    if values is None:
+        values = get_values()
     
-    if event == '-RESET-':
-        # Reset all values to defaults
-        win['-BLUR-'].update(0)
-        win['-PIXELATE-'].update(1)
-        win['-POSTERIZE-'].update(8)
-        win['-SOLARIZE-'].update(255)
-        win['-THRESHOLD-'].update(255)
-        win['-VIGNETTE-'].update(0)
-        win['-SEPIA-'].update(0)
-        win['-DETAIL-'].update(False)
-        win['-EDGE-'].update(False)
-        win['-EMBOSS-'].update(False)
-        win['-CONTOUR-'].update(False)
-        win['-INVERT-'].update(False)
-        win['-GRAYSCALE-'].update(False)
-        win['-AUTO_CONTRAST-'].update(False)
-        win['-EQUALIZE-'].update(False)
-        win['-CONTRAST-'].update(1.0)
-        win['-BRIGHTNESS-'].update(1.0)
-        win['-GAMMA-'].update(1.0)
-        win['-SHARPNESS-'].update(1.0)
-        win['-TEMPERATURE-'].update(0)
-        win['-HUE-'].update(0)
-        win['-COLOR-'].update(1.0)
-        win['-R_FACTOR-'].update(1.0)
-        win['-G_FACTOR-'].update(1.0)
-        win['-B_FACTOR-'].update(1.0)
-        win['-FLIPX-'].update(False)
-        win['-FLIPY-'].update(False)
-        win['-ROTATION-'].update(0)
-        win['-SCALE-'].update(100)
-        win['-CROP_L-'].update(0)
-        win['-CROP_R-'].update(0)
-        win['-CROP_T-'].update(0)
-        win['-CROP_B-'].update(0)
-        win['-BORDER_SIZE-'].update(0)
-        win['-BORDER_COLOR-'].update('#FFFFFF')
+    try:
+        current_image = apply_effects(original, values)
         
-        # Reset Text Tab
-        win['-TEXT_CONTENT-'].update('')
-        win['-TEXT_SIZE-'].update(20)
-        win['-TEXT_OPACITY-'].update(255)
-        win['-TEXT_COLOR-'].update('#FFFFFF')
-        win['-TEXT_X-'].update(50)
-        win['-TEXT_Y-'].update(50)
+        # Resize for display
+        display_image = current_image.copy()
         
-        # Force update loop to pick up changes
-        values = win.read(timeout=0)[1]
+        # Get display area size? For now fixed max size
+        max_w, max_h = 800, 800
+        display_image.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+        
+        tk_img = ImageTk.PhotoImage(display_image)
+        image_label.configure(image=tk_img)
+        image_label.image = tk_img
+    except Exception as e:
+        print(f"Error updating image: {e}")
 
-    # Handle Undo
-    if event == '-UNDO-':
-        if history_index > 0:
-            history_index -= 1
-            restore_values = history[history_index]
-            # Update UI elements
-            for key in restore_values:
-                try:
-                    win[key].update(restore_values[key])
-                except:
-                    pass
-            values = restore_values
-            prev_values = values
-            update_image(original, values)
+def on_change(*args):
+    global history, history_index, prev_values
+    values = get_values()
+    update_image(original_image, values)
 
-    # Handle Redo
-    elif event == '-REDO-':
-        if history_index < len(history) - 1:
-            history_index += 1
-            restore_values = history[history_index]
-            # Update UI elements
-            for key in restore_values:
-                try:
-                    win[key].update(restore_values[key])
-                except:
-                    pass
-            values = restore_values
-            prev_values = values
-            update_image(original, values)
-            
-    # Handle Save Preset
-    if event == '-SAVE_PRESET-':
-        preset_path = get_file_path('Save Preset', save_as=True, file_types=[("JSON", "*.json")], default_extension=".json")
-        if preset_path:
-            data_to_save = {k: values[k] for k in SETTINGS_KEYS if k in values}
-            try:
-                with open(preset_path, 'w') as f:
-                    json.dump(data_to_save, f, indent=4)
-                show_message('Success', 'Preset saved successfully!')
-            except Exception as e:
-                show_message('Error', f'Error saving preset: {e}', is_error=True)
-
-    # Handle Load Preset
-    if event == '-LOAD_PRESET-':
-        preset_path = get_file_path('Load Preset', file_types=[("JSON", "*.json")])
-        if preset_path:
-            try:
-                with open(preset_path, 'r') as f:
-                    loaded_data = json.load(f)
-                
-                # Update UI and values
-                for key, val in loaded_data.items():
-                    if key in win.element_list(): # Check if element exists
-                        win[key].update(val)
-                        values[key] = val # Update current values dict
-                
-                # Trigger update
-                prev_values = values
-                update_image(original, values)
-                
-                # Add to history
-                if history_index < len(history) - 1:
-                    history = history[:history_index+1]
-                history.append(values)
-                history_index += 1
-                
-            except Exception as e:
-                show_message('Error', f'Error loading preset: {e}', is_error=True)
-
-    # Handle Batch Process
-    if event == '-BATCH-':
-        source_folder = get_folder_path('Select Source Folder')
-        if source_folder:
-            dest_folder = get_folder_path('Select Destination Folder')
-            if dest_folder:
-                # Get list of files
-                try:
-                    files = os.listdir(source_folder)
-                    count = 0
-                    for filename in files:
-                        lower_name = filename.lower()
-                        if lower_name.endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
-                            try:
-                                file_path = os.path.join(source_folder, filename)
-                                img = Image.open(file_path)
-                                
-                                # Apply effects
-                                processed_img = apply_effects(img, values)
-                                
-                                # Save
-                                save_path = os.path.join(dest_folder, filename)
-                                # Handle format
-                                if lower_name.endswith(('.jpg', '.jpeg')):
-                                     if processed_img.mode in ('RGBA', 'LA'):
-                                        background = Image.new(processed_img.mode[:-1], processed_img.size, (255, 255, 255))
-                                        background.paste(processed_img, processed_img.split()[-1])
-                                        processed_img = background
-                                     processed_img.save(save_path, quality=95)
-                                else:
-                                    processed_img.save(save_path)
-                                
-                                count += 1
-                            except Exception as e:
-                                print(f"Failed to process {filename}: {e}")
-                    
-                    show_message('Success', f'Batch processing complete! Processed {count} images.')
-                except Exception as e:
-                    show_message('Error', f'Error reading folder: {e}', is_error=True)
-
+def save_history(event=None):
+    global history, history_index, prev_values
+    values = get_values()
     if values != prev_values:
-        # New change detected
-        
-        # If we are not at the end of history, truncate it (new branch)
         if history_index < len(history) - 1:
             history = history[:history_index+1]
-        
         history.append(values)
         history_index += 1
-        
-        # Limit history size
         if len(history) > 50:
             history.pop(0)
             history_index -= 1
-            
-        update_image(original, values)
-        prev_values = values
+        prev_values = values.copy()
 
-    # if user pressed save button
-    if event == '-SAVE-':
-        save_path = get_file_path('Save', save_as=True, file_types=[("PNG", "*.png"), ("JPEG", "*.jpg"), ("All Files", "*.*")], default_extension=".png")
-        if save_path:
-            # check extension
-            filename, file_extension = os.path.splitext(save_path)
-            if not file_extension:
-                # default to png
-                save_path += '.png'
-                file_extension = '.png'
-            
-            # save based on extension
-            if file_extension.lower() in ['.jpg', '.jpeg']:
-                # JPEG does not support alpha
-                if image.mode in ('RGBA', 'LA'):
-                    background = Image.new(image.mode[:-1], image.size, (255, 255, 255))
-                    background.paste(image, image.split()[-1])
-                    image_to_save = background
-                else:
-                    image_to_save = image
-                image_to_save.save(save_path, quality=95)
+def reset_controls():
+    for k, v in defaults.items():
+        if k in gui_vars:
+            gui_vars[k].set(v)
+    save_history()
+    update_image(original_image)
+
+def undo():
+    global history_index, prev_values
+    if history_index > 0:
+        history_index -= 1
+        restore_values = history[history_index]
+        set_values(restore_values)
+        prev_values = restore_values.copy()
+        update_image(original_image, restore_values)
+
+def redo():
+    global history_index, prev_values
+    if history_index < len(history) - 1:
+        history_index += 1
+        restore_values = history[history_index]
+        set_values(restore_values)
+        prev_values = restore_values.copy()
+        update_image(original_image, restore_values)
+
+def set_values(values):
+    for k, v in values.items():
+        if k in gui_vars:
+            gui_vars[k].set(v)
+
+def save_preset():
+    preset_path = get_file_path('Save Preset', save_as=True, file_types=[("JSON", "*.json")], default_extension=".json")
+    if preset_path:
+        data = get_values()
+        try:
+            with open(preset_path, 'w') as f:
+                json.dump(data, f, indent=4)
+            show_message('Success', 'Preset saved successfully!')
+        except Exception as e:
+            show_message('Error', f'Error saving preset: {e}', is_error=True)
+
+def load_preset():
+    preset_path = get_file_path('Load Preset', file_types=[("JSON", "*.json")])
+    if preset_path:
+        try:
+            with open(preset_path, 'r') as f:
+                data = json.load(f)
+            set_values(data)
+            save_history()
+            update_image(original_image)
+        except Exception as e:
+            show_message('Error', f'Error loading preset: {e}', is_error=True)
+
+def batch_process():
+    source_folder = get_folder_path('Select Source Folder')
+    if source_folder:
+        dest_folder = get_folder_path('Select Destination Folder')
+        if dest_folder:
+            values = get_values()
+            try:
+                files = os.listdir(source_folder)
+                count = 0
+                for filename in files:
+                    lower_name = filename.lower()
+                    if lower_name.endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
+                        try:
+                            file_path = os.path.join(source_folder, filename)
+                            img = Image.open(file_path)
+                            if img.mode in ('P', 'CMYK', 'HSV'):
+                                img = img.convert('RGBA')
+                            
+                            processed_img = apply_effects(img, values)
+                            
+                            save_path = os.path.join(dest_folder, filename)
+                            if lower_name.endswith(('.jpg', '.jpeg')):
+                                 if processed_img.mode in ('RGBA', 'LA'):
+                                    background = Image.new(processed_img.mode[:-1], processed_img.size, (255, 255, 255))
+                                    background.paste(processed_img, processed_img.split()[-1])
+                                    processed_img = background
+                                 processed_img.save(save_path, quality=95)
+                            else:
+                                processed_img.save(save_path)
+                            
+                            count += 1
+                        except Exception as e:
+                            print(f"Failed to process {filename}: {e}")
+                
+                show_message('Success', f'Batch processing complete! Processed {count} images.')
+            except Exception as e:
+                show_message('Error', f'Error reading folder: {e}', is_error=True)
+
+def save_image():
+    save_path = get_file_path('Save', save_as=True, file_types=[("PNG", "*.png"), ("JPEG", "*.jpg"), ("All Files", "*.*")], default_extension=".png")
+    if save_path:
+        filename, file_extension = os.path.splitext(save_path)
+        if not file_extension:
+            save_path += '.png'
+            file_extension = '.png'
+        
+        if file_extension.lower() in ['.jpg', '.jpeg']:
+            if current_image.mode in ('RGBA', 'LA'):
+                background = Image.new(current_image.mode[:-1], current_image.size, (255, 255, 255))
+                background.paste(current_image, current_image.split()[-1])
+                image_to_save = background
             else:
-                image.save(save_path)
+                image_to_save = current_image
+            image_to_save.save(save_path, quality=95)
+        else:
+            current_image.save(save_path)
 
-win.close()
+def rotate_m90():
+    curr = gui_vars['-ROTATION-'].get()
+    new_val = (curr - 90) % 360
+    gui_vars['-ROTATION-'].set(new_val)
+    save_history()
+    update_image(original_image)
+
+def rotate_p90():
+    curr = gui_vars['-ROTATION-'].get()
+    new_val = (curr + 90) % 360
+    gui_vars['-ROTATION-'].set(new_val)
+    save_history()
+    update_image(original_image)
+
+def pick_color(key):
+    try:
+        curr = gui_vars[key].get()
+        color = colorchooser.askcolor(color=curr)[1]
+    except:
+        color = colorchooser.askcolor()[1]
+        
+    if color:
+        gui_vars[key].set(color)
+        save_history()
+        update_image(original_image)
+
+# UI Construction Helpers
+def add_slider(parent, label, key, from_, to, default, resolution=1):
+    frame = ttk.LabelFrame(parent, text=label)
+    frame.pack(fill='x', padx=5, pady=2)
+    
+    var = tk.DoubleVar(value=default)
+    gui_vars[key] = var
+    defaults[key] = default
+    
+    scale = tk.Scale(frame, from_=from_, to=to, orient='horizontal', variable=var, resolution=resolution, command=on_change)
+    scale.pack(fill='x', padx=5, pady=2)
+    
+    # Bind release for history
+    scale.bind("<ButtonRelease-1>", save_history)
+    
+    return scale
+
+def add_checkbox(parent, label, key, default=False):
+    var = tk.BooleanVar(value=default)
+    gui_vars[key] = var
+    defaults[key] = default
+    
+    chk = ttk.Checkbutton(parent, text=label, variable=var, command=lambda: [on_change(), save_history()])
+    return chk
+
+# Main execution
+if __name__ == "__main__":
+    # Hide root window for initial dialog
+    root = tk.Tk()
+    root.withdraw()
+    
+    image_path = get_file_path('Open')
+    if not image_path:
+        root.destroy()
+        exit()
+        
+    original_image = Image.open(image_path)
+    if original_image.mode in ('P', 'CMYK', 'HSV'):
+        original_image = original_image.convert('RGBA')
+    
+    # Show root window
+    root.deiconify()
+    root.title("IMAGE EDITOR")
+    
+    # Layout
+    main_paned = tk.PanedWindow(root, orient=tk.HORIZONTAL)
+    main_paned.pack(fill=tk.BOTH, expand=True)
+    
+    control_frame = ttk.Frame(main_paned, width=350)
+    image_frame = ttk.Frame(main_paned)
+    
+    main_paned.add(control_frame)
+    main_paned.add(image_frame)
+    
+    # Tabs
+    notebook = ttk.Notebook(control_frame)
+    notebook.pack(fill=tk.BOTH, expand=True)
+    
+    # Effects Tab
+    tab_effects = ttk.Frame(notebook)
+    notebook.add(tab_effects, text='Effects')
+    add_slider(tab_effects, 'Blur', '-BLUR-', 0, 10, 0)
+    add_slider(tab_effects, 'Pixelate', '-PIXELATE-', 1, 50, 1)
+    add_slider(tab_effects, 'Posterize', '-POSTERIZE-', 1, 8, 8)
+    add_slider(tab_effects, 'Solarize', '-SOLARIZE-', 0, 255, 255)
+    add_slider(tab_effects, 'Threshold', '-THRESHOLD-', 0, 255, 255)
+    add_slider(tab_effects, 'Vignette', '-VIGNETTE-', 0, 100, 0)
+    add_slider(tab_effects, 'Sepia', '-SEPIA-', 0, 100, 0)
+    
+    # Filters Tab
+    tab_filters = ttk.Frame(notebook)
+    notebook.add(tab_filters, text='Filters')
+    f_grid = ttk.Frame(tab_filters)
+    f_grid.pack(fill='x', padx=5, pady=5)
+    add_checkbox(f_grid, 'Detail', '-DETAIL-').grid(row=0, column=0, sticky='w')
+    add_checkbox(f_grid, 'Edge Enhance', '-EDGE-').grid(row=0, column=1, sticky='w')
+    add_checkbox(f_grid, 'Emboss', '-EMBOSS-').grid(row=1, column=0, sticky='w')
+    add_checkbox(f_grid, 'Contour', '-CONTOUR-').grid(row=1, column=1, sticky='w')
+    add_checkbox(f_grid, 'Invert', '-INVERT-').grid(row=2, column=0, sticky='w')
+    add_checkbox(f_grid, 'Grayscale', '-GRAYSCALE-').grid(row=2, column=1, sticky='w')
+    add_checkbox(f_grid, 'Auto Contrast', '-AUTO_CONTRAST-').grid(row=3, column=0, sticky='w')
+    add_checkbox(f_grid, 'Equalize', '-EQUALIZE-').grid(row=3, column=1, sticky='w')
+    
+    # Adjustments Tab
+    tab_adjust = ttk.Frame(notebook)
+    notebook.add(tab_adjust, text='Adjustments')
+    add_slider(tab_adjust, 'Contrast', '-CONTRAST-', 0.0, 2.0, 1.0, 0.1)
+    add_slider(tab_adjust, 'Brightness', '-BRIGHTNESS-', 0.0, 2.0, 1.0, 0.1)
+    add_slider(tab_adjust, 'Gamma', '-GAMMA-', 0.1, 3.0, 1.0, 0.1)
+    add_slider(tab_adjust, 'Sharpness', '-SHARPNESS-', 0.0, 2.0, 1.0, 0.1)
+    
+    # Color Tab
+    tab_color = ttk.Frame(notebook)
+    notebook.add(tab_color, text='Color')
+    add_slider(tab_color, 'Temperature', '-TEMPERATURE-', -100, 100, 0)
+    add_slider(tab_color, 'Hue', '-HUE-', -180, 180, 0)
+    add_slider(tab_color, 'Saturation', '-COLOR-', 0.0, 2.0, 1.0, 0.1)
+    add_slider(tab_color, 'Red', '-R_FACTOR-', 0.0, 2.0, 1.0, 0.1)
+    add_slider(tab_color, 'Green', '-G_FACTOR-', 0.0, 2.0, 1.0, 0.1)
+    add_slider(tab_color, 'Blue', '-B_FACTOR-', 0.0, 2.0, 1.0, 0.1)
+    
+    # Transform Tab
+    tab_transform = ttk.Frame(notebook)
+    notebook.add(tab_transform, text='Transform')
+    t_grid = ttk.Frame(tab_transform)
+    t_grid.pack(fill='x', padx=5, pady=5)
+    add_checkbox(t_grid, 'Flip X', '-FLIPX-').pack(side='left')
+    add_checkbox(t_grid, 'Flip Y', '-FLIPY-').pack(side='left')
+    
+    add_slider(tab_transform, 'Rotation', '-ROTATION-', 0, 360, 0)
+    rot_btn_frame = ttk.Frame(tab_transform)
+    rot_btn_frame.pack(fill='x', padx=5)
+    ttk.Button(rot_btn_frame, text='-90°', command=rotate_m90).pack(side='left', expand=True)
+    ttk.Button(rot_btn_frame, text='+90°', command=rotate_p90).pack(side='left', expand=True)
+    
+    add_slider(tab_transform, 'Scale %', '-SCALE-', 10, 200, 100)
+    
+    crop_frame = ttk.LabelFrame(tab_transform, text='Crop %')
+    crop_frame.pack(fill='x', padx=5, pady=2)
+    # L, R, T, B sliders
+    # To save space, maybe 2x2 grid
+    c_grid = ttk.Frame(crop_frame)
+    c_grid.pack(fill='x')
+    
+    # Helper for crop sliders
+    def add_crop_slider(parent, label, key, row, col):
+        ttk.Label(parent, text=label).grid(row=row, column=col*2, sticky='e')
+        var = tk.DoubleVar(value=0)
+        gui_vars[key] = var
+        defaults[key] = 0
+        s = tk.Scale(parent, from_=0, to=45, orient='horizontal', variable=var, command=on_change)
+        s.grid(row=row, column=col*2+1, sticky='ew')
+        s.bind("<ButtonRelease-1>", save_history)
+        
+    add_crop_slider(c_grid, 'L', '-CROP_L-', 0, 0)
+    add_crop_slider(c_grid, 'R', '-CROP_R-', 0, 1)
+    add_crop_slider(c_grid, 'T', '-CROP_T-', 1, 0)
+    add_crop_slider(c_grid, 'B', '-CROP_B-', 1, 1)
+    
+    # Border Tab
+    tab_border = ttk.Frame(notebook)
+    notebook.add(tab_border, text='Border')
+    add_slider(tab_border, 'Size (px)', '-BORDER_SIZE-', 0, 100, 0)
+    
+    b_col_frame = ttk.Frame(tab_border)
+    b_col_frame.pack(fill='x', padx=5, pady=5)
+    ttk.Label(b_col_frame, text='Color').pack(side='left')
+    
+    b_col_var = tk.StringVar(value='#FFFFFF')
+    gui_vars['-BORDER_COLOR-'] = b_col_var
+    defaults['-BORDER_COLOR-'] = '#FFFFFF'
+    
+    b_col_entry = ttk.Entry(b_col_frame, textvariable=b_col_var, width=10)
+    b_col_entry.pack(side='left', padx=5)
+    b_col_var.trace_add('write', lambda *args: [on_change(), save_history()])
+    
+    b_col_btn = ttk.Button(b_col_frame, text='Pick')
+    b_col_btn.configure(command=lambda: pick_color('-BORDER_COLOR-'))
+    b_col_btn.pack(side='left', padx=5)
+    
+    # Text Tab
+    tab_text = ttk.Frame(notebook)
+    notebook.add(tab_text, text='Text')
+    
+    txt_frame = ttk.Frame(tab_text)
+    txt_frame.pack(fill='x', padx=5, pady=5)
+    ttk.Label(txt_frame, text='Text:').pack(side='left')
+    txt_var = tk.StringVar(value='')
+    gui_vars['-TEXT_CONTENT-'] = txt_var
+    defaults['-TEXT_CONTENT-'] = ''
+    # Entry needs to trigger update on change? Maybe on return or focus out?
+    # Or trace variable
+    txt_entry = ttk.Entry(txt_frame, textvariable=txt_var)
+    txt_entry.pack(side='left', fill='x', expand=True)
+    txt_var.trace_add('write', lambda *args: [on_change(), save_history()])
+    
+    add_slider(tab_text, 'Size', '-TEXT_SIZE-', 10, 200, 20)
+    add_slider(tab_text, 'Opacity', '-TEXT_OPACITY-', 0, 255, 255)
+    
+    t_col_frame = ttk.Frame(tab_text)
+    t_col_frame.pack(fill='x', padx=5, pady=5)
+    ttk.Label(t_col_frame, text='Color').pack(side='left')
+    
+    t_col_var = tk.StringVar(value='#FFFFFF')
+    gui_vars['-TEXT_COLOR-'] = t_col_var
+    defaults['-TEXT_COLOR-'] = '#FFFFFF'
+    
+    t_col_entry = ttk.Entry(t_col_frame, textvariable=t_col_var, width=10)
+    t_col_entry.pack(side='left', padx=5)
+    t_col_var.trace_add('write', lambda *args: [on_change(), save_history()])
+    
+    t_col_btn = ttk.Button(t_col_frame, text='Pick')
+    t_col_btn.configure(command=lambda: pick_color('-TEXT_COLOR-'))
+    t_col_btn.pack(side='left', padx=5)
+    
+    add_slider(tab_text, 'X %', '-TEXT_X-', 0, 100, 50)
+    add_slider(tab_text, 'Y %', '-TEXT_Y-', 0, 100, 50)
+    
+    # Bottom Buttons
+    btn_frame = ttk.Frame(control_frame)
+    btn_frame.pack(fill='x', pady=10)
+    ttk.Button(btn_frame, text='Save', command=save_image).pack(side='left', expand=True)
+    ttk.Button(btn_frame, text='Reset', command=reset_controls).pack(side='left', expand=True)
+    ttk.Button(btn_frame, text='Undo', command=undo).pack(side='left', expand=True)
+    ttk.Button(btn_frame, text='Redo', command=redo).pack(side='left', expand=True)
+    
+    btn_frame2 = ttk.Frame(control_frame)
+    btn_frame2.pack(fill='x', pady=5)
+    ttk.Button(btn_frame2, text='Save Preset', command=save_preset).pack(side='left', expand=True)
+    ttk.Button(btn_frame2, text='Load Preset', command=load_preset).pack(side='left', expand=True)
+    ttk.Button(btn_frame2, text='Batch', command=batch_process).pack(side='left', expand=True)
+    
+    info = f"Image Editor v0.11\n\nPython: {platform.python_version()}\nPillow: {Image.__version__}\nTkinter: {tk.TkVersion}\nOS: {platform.system()} {platform.release()}"
+    ttk.Button(control_frame, text='About', command=lambda: show_message('About', info)).pack(pady=5)
+    
+    # Image Area
+    image_label = ttk.Label(image_frame)
+    image_label.pack(fill=tk.BOTH, expand=True)
+    
+    # Initial update
+    prev_values = get_values()
+    history.append(prev_values)
+    history_index = 0
+    update_image(original_image)
+    
+    root.mainloop()
