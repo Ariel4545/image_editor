@@ -6,16 +6,21 @@ A simple yet powerful image editor built with Python, using **Tkinter** for the 
 
 ## Features ✨
 
-The editor is organized into seven main tabs for easy access to all tools:
+The editor is organized into tabs for easy access to all tools:
 
 ### 🎨 Effects
 *   **Blur**: Apply Gaussian blur to soften the image.
+*   **Noise Reduction**: Reduce image noise using a median filter.
 *   **Pixelate**: Pixelate the image for a retro or censored look.
 *   **Posterize**: Reduce the number of colors for a poster-like effect.
 *   **Solarize**: Invert pixel values above a threshold.
 *   **Threshold**: Convert image to pure black and white based on intensity.
 *   **Vignette**: Add a dark gradient to the corners to focus on the center.
 *   **Sepia**: Apply a vintage sepia tone with adjustable intensity.
+
+### 🎭 Artistic
+*   **Chromatic Aberration**: Simulate lens dispersion by offsetting color channels.
+*   **Scanlines**: Add horizontal lines for a retro CRT monitor effect.
 
 ### 🖼️ Filters
 *   **Detail**: Enhance fine details.
@@ -32,6 +37,7 @@ The editor is organized into seven main tabs for easy access to all tools:
 *   **Brightness**: Make the image lighter or darker.
 *   **Gamma**: Adjust gamma correction for non-linear brightness control.
 *   **Sharpness**: Sharpen the image to make it clearer.
+*   **Unsharp Mask**: Advanced sharpening for better detail enhancement.
 
 ### 🌈 Color
 *   **Temperature**: Adjust the warmth (red/blue balance) of the image.
@@ -49,6 +55,10 @@ The editor is organized into seven main tabs for easy access to all tools:
 ### 🖼️ Border
 *   **Size**: Add a solid border around the image.
 *   **Color**: Customize the border color.
+
+### 💧 Watermark
+*   **Image Overlay**: Add a custom image as a watermark.
+*   **Controls**: Adjust Opacity, Scale, and Position (X/Y).
 
 ### ✍️ Text
 *   **Content**: Add custom text overlay.
@@ -96,3 +106,6 @@ pip install Pillow
 *   [x] Border tool
 *   [x] High DPI Support
 *   [x] Migrate to Tkinter (Remove PySimpleGUI dependency)
+*   [x] Noise Reduction & Unsharp Mask
+*   [x] Artistic Effects (Chromatic Aberration, Scanlines)
+*   [x] Watermark Tool
