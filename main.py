@@ -1,5 +1,5 @@
 # imports
-from PIL import Image, ImageFilter, ImageOps, ImageEnhance, ImageDraw, ImageFont, ImageColor, ImageTk
+from PIL import Image, ImageFilter, ImageOps, ImageEnhance, ImageDraw, ImageFont, ImageColor, ImageTk, ImageChops
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk, colorchooser
 from io import BytesIO
@@ -95,11 +95,24 @@ def apply_effects(original, values):
     hue = values.get('-HUE-', 0)
     vignette = values.get('-VIGNETTE-', 0)
     
-    # New features
+    # New features v0.11
     auto_contrast = values.get('-AUTO_CONTRAST-', False)
     equalize = values.get('-EQUALIZE-', False)
     border_size = int(values.get('-BORDER_SIZE-', 0))
     border_color_hex = values.get('-BORDER_COLOR-', '#FFFFFF')
+
+    # New features v0.12 (Merged)
+    noise = int(values.get('-NOISE-', 0))
+    unsharp = values.get('-UNSHARP-', 0)
+    chromatic = int(values.get('-CHROMATIC-', 0))
+    scanline = int(values.get('-SCANLINE-', 0))
+    
+    # Watermark values
+    watermark_path = values.get('-WATERMARK_PATH-', '')
+    watermark_opacity = int(values.get('-WATERMARK_OPACITY-', 255))
+    watermark_scale = int(values.get('-WATERMARK_SCALE-', 100))
+    watermark_x = values.get('-WATERMARK_X-', 50)
+    watermark_y = values.get('-WATERMARK_Y-', 50)
 
     # Text values
     text_content = values.get('-TEXT_CONTENT-', '')
@@ -151,6 +164,34 @@ def apply_effects(original, values):
         image = image.resize((small_w, small_h), resample=Image.NEAREST)
         # Resize up
         image = image.resize((w, h), resample=Image.NEAREST)
+
+    # apply noise reduction (Median Filter)
+    if noise > 0:
+        # Size must be odd: 1->3, 2->5, 3->7, etc.
+        size = (noise * 2) + 1
+        image = image.filter(ImageFilter.MedianFilter(size))
+
+    # apply chromatic aberration
+    if chromatic != 0:
+        if image.mode != 'RGB' and image.mode != 'RGBA':
+            image = image.convert('RGB')
+        
+        # Split channels
+        if image.mode == 'RGBA':
+            r, g, b, a = image.split()
+        else:
+            r, g, b = image.split()
+            a = None
+            
+        # Shift channels
+        r = ImageChops.offset(r, chromatic, 0)
+        b = ImageChops.offset(b, -chromatic, 0)
+        
+        # Merge back
+        if a:
+            image = Image.merge('RGBA', (r, g, b, a))
+        else:
+            image = Image.merge('RGB', (r, g, b))
 
     # apply filters
     if blur > 0:
@@ -335,6 +376,10 @@ def apply_effects(original, values):
         enhancer = ImageEnhance.Sharpness(image)
         image = enhancer.enhance(sharpness)
         
+    # apply unsharp mask
+    if unsharp > 0:
+        image = image.filter(ImageFilter.UnsharpMask(radius=unsharp, percent=150, threshold=3))
+        
     # apply gamma
     if gamma != 1.0:
         inv_gamma = 1.0 / gamma
@@ -351,6 +396,20 @@ def apply_effects(original, values):
         else:
             # RGB
             image = image.point(table * 3)
+
+    # apply scanlines
+    if scanline > 0:
+        w, h = image.size
+        # Create a pattern
+        overlay = Image.new('RGBA', (w, h), (0,0,0,0))
+        draw = ImageDraw.Draw(overlay)
+        # Draw lines every 4 pixels
+        for y in range(0, h, 4):
+            draw.line([(0, y), (w, y)], fill=(0, 0, 0, scanline))
+        
+        if image.mode != 'RGBA':
+            image = image.convert('RGBA')
+        image = Image.alpha_composite(image, overlay)
 
     # apply vignette
     if vignette > 0:
@@ -390,6 +449,45 @@ def apply_effects(original, values):
             border_color = (r, g, b)
             
         image = ImageOps.expand(image, border=border_size, fill=border_color)
+
+    # apply watermark
+    if watermark_path and os.path.exists(watermark_path):
+        try:
+            wm = Image.open(watermark_path).convert("RGBA")
+            
+            # Scale watermark
+            if watermark_scale != 100:
+                wm_w, wm_h = wm.size
+                new_wm_w = int(wm_w * (watermark_scale / 100))
+                new_wm_h = int(wm_h * (watermark_scale / 100))
+                wm = wm.resize((new_wm_w, new_wm_h), Image.Resampling.LANCZOS)
+            
+            # Opacity
+            if watermark_opacity < 255:
+                # Adjust alpha channel
+                r, g, b, a = wm.split()
+                a = a.point(lambda i: int(i * (watermark_opacity / 255)))
+                wm = Image.merge('RGBA', (r, g, b, a))
+            
+            # Position
+            w, h = image.size
+            wm_w, wm_h = wm.size
+            
+            # Center based on percentage
+            x = int((w * (watermark_x / 100)) - (wm_w / 2))
+            y = int((h * (watermark_y / 100)) - (wm_h / 2))
+            
+            if image.mode != 'RGBA':
+                image = image.convert('RGBA')
+            
+            # Paste (using alpha composite for transparency)
+            # Create a layer for watermark
+            wm_layer = Image.new('RGBA', image.size, (0,0,0,0))
+            wm_layer.paste(wm, (x, y))
+            image = Image.alpha_composite(image, wm_layer)
+            
+        except Exception as e:
+            print(f"Error applying watermark: {e}")
 
     # apply text overlay
     if text_content:
@@ -625,6 +723,13 @@ def pick_color(key):
         save_history()
         update_image(original_image)
 
+def pick_watermark():
+    path = get_file_path("Select Watermark", file_types=[("Images", "*.png;*.jpg;*.jpeg;*.bmp")])
+    if path:
+        gui_vars['-WATERMARK_PATH-'].set(path)
+        save_history()
+        update_image(original_image)
+
 # UI Construction Helpers
 def add_slider(parent, label, key, from_, to, default, resolution=1):
     frame = ttk.LabelFrame(parent, text=label)
@@ -687,12 +792,19 @@ if __name__ == "__main__":
     tab_effects = ttk.Frame(notebook)
     notebook.add(tab_effects, text='Effects')
     add_slider(tab_effects, 'Blur', '-BLUR-', 0, 10, 0)
+    add_slider(tab_effects, 'Noise Reduction', '-NOISE-', 0, 5, 0)
     add_slider(tab_effects, 'Pixelate', '-PIXELATE-', 1, 50, 1)
     add_slider(tab_effects, 'Posterize', '-POSTERIZE-', 1, 8, 8)
     add_slider(tab_effects, 'Solarize', '-SOLARIZE-', 0, 255, 255)
     add_slider(tab_effects, 'Threshold', '-THRESHOLD-', 0, 255, 255)
     add_slider(tab_effects, 'Vignette', '-VIGNETTE-', 0, 100, 0)
     add_slider(tab_effects, 'Sepia', '-SEPIA-', 0, 100, 0)
+    
+    # Artistic Tab (New)
+    tab_artistic = ttk.Frame(notebook)
+    notebook.add(tab_artistic, text='Artistic')
+    add_slider(tab_artistic, 'Chromatic Aberration', '-CHROMATIC-', 0, 20, 0)
+    add_slider(tab_artistic, 'Scanlines', '-SCANLINE-', 0, 255, 0)
     
     # Filters Tab
     tab_filters = ttk.Frame(notebook)
@@ -715,6 +827,7 @@ if __name__ == "__main__":
     add_slider(tab_adjust, 'Brightness', '-BRIGHTNESS-', 0.0, 2.0, 1.0, 0.1)
     add_slider(tab_adjust, 'Gamma', '-GAMMA-', 0.1, 3.0, 1.0, 0.1)
     add_slider(tab_adjust, 'Sharpness', '-SHARPNESS-', 0.0, 2.0, 1.0, 0.1)
+    add_slider(tab_adjust, 'Unsharp Mask', '-UNSHARP-', 0.0, 10.0, 0.0, 0.5)
     
     # Color Tab
     tab_color = ttk.Frame(notebook)
@@ -785,6 +898,30 @@ if __name__ == "__main__":
     b_col_btn.configure(command=lambda: pick_color('-BORDER_COLOR-'))
     b_col_btn.pack(side='left', padx=5)
     
+    # Watermark Tab (New)
+    tab_watermark = ttk.Frame(notebook)
+    notebook.add(tab_watermark, text='Watermark')
+    
+    wm_frame = ttk.Frame(tab_watermark)
+    wm_frame.pack(fill='x', padx=5, pady=5)
+    ttk.Label(wm_frame, text='Image:').pack(side='left')
+    
+    wm_var = tk.StringVar(value='')
+    gui_vars['-WATERMARK_PATH-'] = wm_var
+    defaults['-WATERMARK_PATH-'] = ''
+    
+    wm_entry = ttk.Entry(wm_frame, textvariable=wm_var)
+    wm_entry.pack(side='left', fill='x', expand=True, padx=5)
+    wm_var.trace_add('write', lambda *args: [on_change(), save_history()])
+    
+    wm_btn = ttk.Button(wm_frame, text='Browse', command=pick_watermark)
+    wm_btn.pack(side='left')
+    
+    add_slider(tab_watermark, 'Opacity', '-WATERMARK_OPACITY-', 0, 255, 255)
+    add_slider(tab_watermark, 'Scale %', '-WATERMARK_SCALE-', 10, 200, 100)
+    add_slider(tab_watermark, 'X %', '-WATERMARK_X-', 0, 100, 50)
+    add_slider(tab_watermark, 'Y %', '-WATERMARK_Y-', 0, 100, 50)
+
     # Text Tab
     tab_text = ttk.Frame(notebook)
     notebook.add(tab_text, text='Text')
@@ -837,7 +974,7 @@ if __name__ == "__main__":
     ttk.Button(btn_frame2, text='Load Preset', command=load_preset).pack(side='left', expand=True)
     ttk.Button(btn_frame2, text='Batch', command=batch_process).pack(side='left', expand=True)
     
-    info = f"Image Editor v0.11\n\nPython: {platform.python_version()}\nPillow: {Image.__version__}\nTkinter: {tk.TkVersion}\nOS: {platform.system()} {platform.release()}"
+    info = f"Image Editor v0.12\n\nPython: {platform.python_version()}\nPillow: {Image.__version__}\nTkinter: {tk.TkVersion}\nOS: {platform.system()} {platform.release()}"
     ttk.Button(control_frame, text='About', command=lambda: show_message('About', info)).pack(pady=5)
     
     # Image Area
