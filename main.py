@@ -1,7 +1,7 @@
 # imports
 from PIL import Image, ImageFilter, ImageOps, ImageEnhance, ImageDraw, ImageFont, ImageColor, ImageTk, ImageChops
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk, colorchooser
+from tkinter import filedialog, messagebox, ttk, colorchooser, Menu
 from io import BytesIO
 import os
 import json
@@ -107,6 +107,12 @@ def apply_effects(original, values):
     chromatic = int(values.get('-CHROMATIC-', 0))
     scanline = int(values.get('-SCANLINE-', 0))
     
+    # New features v0.13
+    box_blur = values.get('-BOX_BLUR-', 0)
+    min_filter = values.get('-MIN_FILTER-', 0)
+    max_filter = values.get('-MAX_FILTER-', 0)
+    tint = values.get('-TINT-', 0)
+    
     # Watermark values
     watermark_path = values.get('-WATERMARK_PATH-', '')
     watermark_opacity = int(values.get('-WATERMARK_OPACITY-', 255))
@@ -170,6 +176,14 @@ def apply_effects(original, values):
         # Size must be odd: 1->3, 2->5, 3->7, etc.
         size = (noise * 2) + 1
         image = image.filter(ImageFilter.MedianFilter(size))
+        
+    # apply min/max filters
+    if min_filter > 0:
+        size = (min_filter * 2) + 1
+        image = image.filter(ImageFilter.MinFilter(size))
+    if max_filter > 0:
+        size = (max_filter * 2) + 1
+        image = image.filter(ImageFilter.MaxFilter(size))
 
     # apply chromatic aberration
     if chromatic != 0:
@@ -196,6 +210,8 @@ def apply_effects(original, values):
     # apply filters
     if blur > 0:
         image = image.filter(ImageFilter.GaussianBlur(blur))
+    if box_blur > 0:
+        image = image.filter(ImageFilter.BoxBlur(box_blur))
     if edge_enhance:
         image = image.filter(ImageFilter.EDGE_ENHANCE())
     if detail:
@@ -262,7 +278,6 @@ def apply_effects(original, values):
     if grayscale:
         image = ImageOps.grayscale(image)
         # Convert back to RGB/RGBA so other filters work if needed, or keep as L
-        # Usually for display it's fine, but subsequent operations might expect RGB
         if original.mode == 'RGBA':
              image = image.convert('RGBA')
         else:
@@ -327,8 +342,8 @@ def apply_effects(original, values):
         if alpha:
             image.putalpha(alpha)
 
-    # apply RGB balance and Temperature
-    if r_factor != 1.0 or g_factor != 1.0 or b_factor != 1.0 or temperature != 0:
+    # apply RGB balance and Temperature and Tint
+    if r_factor != 1.0 or g_factor != 1.0 or b_factor != 1.0 or temperature != 0 or tint != 0:
         if image.mode == 'L':
             image = image.convert('RGB')
         
@@ -344,11 +359,20 @@ def apply_effects(original, values):
         if temperature != 0:
             temp_r = (temperature / 100.0) * 0.2
             temp_b = - (temperature / 100.0) * 0.2
+            
+        # Calculate tint factors (Green vs Magenta)
+        tint_g = 0
+        tint_rb = 0
+        if tint != 0:
+            if tint > 0:
+                tint_g = (tint / 100.0) * 0.2
+            else:
+                tint_rb = (abs(tint) / 100.0) * 0.2
 
         # Apply factors
-        final_r_factor = r_factor + temp_r
-        final_g_factor = g_factor
-        final_b_factor = b_factor + temp_b
+        final_r_factor = r_factor + temp_r + tint_rb
+        final_g_factor = g_factor + tint_g
+        final_b_factor = b_factor + temp_b + tint_rb
 
         if final_r_factor != 1.0:
             r = r.point(lambda i: i * final_r_factor)
@@ -544,6 +568,7 @@ history = []
 history_index = -1
 prev_values = {}
 image_label = None
+status_var = None
 
 def get_values():
     return {k: v.get() for k, v in gui_vars.items()}
@@ -560,14 +585,22 @@ def update_image(original, values=None):
         display_image = current_image.copy()
         
         # Get display area size? For now fixed max size
-        max_w, max_h = 800, 800
+        max_w, max_h = 1000, 800
         display_image.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
         
         tk_img = ImageTk.PhotoImage(display_image)
         image_label.configure(image=tk_img)
         image_label.image = tk_img
+        
+        update_status_bar()
     except Exception as e:
         print(f"Error updating image: {e}")
+
+def update_status_bar():
+    if current_image and status_var:
+        w, h = current_image.size
+        mode = current_image.mode
+        status_var.set(f"Size: {w}x{h} | Mode: {mode} | Zoom: Fit")
 
 def on_change(*args):
     global history, history_index, prev_values
@@ -730,30 +763,118 @@ def pick_watermark():
         save_history()
         update_image(original_image)
 
+def show_histogram():
+    if current_image:
+        hist_win = tk.Toplevel()
+        hist_win.title("Histogram")
+        hist_win.geometry("300x200")
+        
+        canvas = tk.Canvas(hist_win, bg='white')
+        canvas.pack(fill=tk.BOTH, expand=True)
+        
+        img = current_image
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+            
+        hist = img.histogram()
+        # hist has 768 values (256 R, 256 G, 256 B)
+        
+        r_hist = hist[0:256]
+        g_hist = hist[256:512]
+        b_hist = hist[512:768]
+        
+        max_val = max(max(r_hist), max(g_hist), max(b_hist))
+        if max_val == 0: max_val = 1
+        
+        w = 300
+        h = 200
+        
+        # Draw
+        for i in range(256):
+            x = i * (w / 256)
+            
+            # Red
+            h_r = (r_hist[i] / max_val) * h
+            canvas.create_line(x, h, x, h - h_r, fill='red', alpha=0.5)
+            
+            # Green
+            h_g = (g_hist[i] / max_val) * h
+            canvas.create_line(x, h, x, h - h_g, fill='green', alpha=0.5)
+            
+            # Blue
+            h_b = (b_hist[i] / max_val) * h
+            canvas.create_line(x, h, x, h - h_b, fill='blue', alpha=0.5)
+
 # UI Construction Helpers
-def add_slider(parent, label, key, from_, to, default, resolution=1):
-    frame = ttk.LabelFrame(parent, text=label)
-    frame.pack(fill='x', padx=5, pady=2)
+def add_control_slider(parent, label, key, from_, to, default, resolution=1, row=0):
+    # Label
+    ttk.Label(parent, text=label).grid(row=row, column=0, sticky='w', padx=5, pady=2)
     
     var = tk.DoubleVar(value=default)
     gui_vars[key] = var
     defaults[key] = default
     
-    scale = tk.Scale(frame, from_=from_, to=to, orient='horizontal', variable=var, resolution=resolution, command=on_change)
-    scale.pack(fill='x', padx=5, pady=2)
+    # Scale
+    scale = ttk.Scale(parent, from_=from_, to=to, orient='horizontal', variable=var, command=on_change)
+    scale.grid(row=row, column=1, sticky='ew', padx=5, pady=2)
     
     # Bind release for history
     scale.bind("<ButtonRelease-1>", save_history)
     
+    # Value Entry
+    entry = ttk.Entry(parent, textvariable=var, width=5)
+    entry.grid(row=row, column=2, sticky='e', padx=5, pady=2)
+    
+    # Bind entry return to update
+    entry.bind('<Return>', lambda e: [on_change(), save_history()])
+    
     return scale
 
-def add_checkbox(parent, label, key, default=False):
+def add_checkbox(parent, label, key, default=False, row=0, col=0):
     var = tk.BooleanVar(value=default)
     gui_vars[key] = var
     defaults[key] = default
     
     chk = ttk.Checkbutton(parent, text=label, variable=var, command=lambda: [on_change(), save_history()])
+    chk.grid(row=row, column=col, sticky='w', padx=5, pady=2)
     return chk
+
+def create_menu(root):
+    menubar = Menu(root)
+    
+    # File Menu
+    file_menu = Menu(menubar, tearoff=0)
+    file_menu.add_command(label="Open", command=lambda: show_message("Info", "Restart app to open new image")) # Limitation of current structure
+    file_menu.add_command(label="Save", command=save_image)
+    file_menu.add_separator()
+    file_menu.add_command(label="Batch Process", command=batch_process)
+    file_menu.add_separator()
+    file_menu.add_command(label="Exit", command=root.quit)
+    menubar.add_cascade(label="File", menu=file_menu)
+    
+    # Edit Menu
+    edit_menu = Menu(menubar, tearoff=0)
+    edit_menu.add_command(label="Undo", command=undo)
+    edit_menu.add_command(label="Redo", command=redo)
+    edit_menu.add_separator()
+    edit_menu.add_command(label="Reset All", command=reset_controls)
+    edit_menu.add_separator()
+    edit_menu.add_command(label="Save Preset", command=save_preset)
+    edit_menu.add_command(label="Load Preset", command=load_preset)
+    menubar.add_cascade(label="Edit", menu=edit_menu)
+    
+    # View Menu
+    view_menu = Menu(menubar, tearoff=0)
+    view_menu.add_command(label="Histogram", command=show_histogram)
+    menubar.add_cascade(label="View", menu=view_menu)
+    
+    # Help Menu
+    help_menu = Menu(menubar, tearoff=0)
+    info = f"Image Editor v0.13\n\nPython: {platform.python_version()}\nPillow: {Image.__version__}\nTkinter: {tk.TkVersion}\nOS: {platform.system()} {platform.release()}"
+    help_menu.add_command(label="About", command=lambda: show_message('About', info))
+    menubar.add_cascade(label="Help", menu=help_menu)
+    
+    root.config(menu=menubar)
 
 # Main execution
 if __name__ == "__main__":
@@ -772,13 +893,17 @@ if __name__ == "__main__":
     
     # Show root window
     root.deiconify()
-    root.title("IMAGE EDITOR")
+    root.title("IMAGE EDITOR PRO")
+    root.geometry("1200x800")
+    
+    # Setup Menu
+    create_menu(root)
     
     # Layout
     main_paned = tk.PanedWindow(root, orient=tk.HORIZONTAL)
     main_paned.pack(fill=tk.BOTH, expand=True)
     
-    control_frame = ttk.Frame(main_paned, width=350)
+    control_frame = ttk.Frame(main_paned, width=400)
     image_frame = ttk.Frame(main_paned)
     
     main_paned.add(control_frame)
@@ -786,104 +911,126 @@ if __name__ == "__main__":
     
     # Tabs
     notebook = ttk.Notebook(control_frame)
-    notebook.pack(fill=tk.BOTH, expand=True)
+    notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
     
-    # Effects Tab
+    # --- Effects Tab ---
     tab_effects = ttk.Frame(notebook)
     notebook.add(tab_effects, text='Effects')
-    add_slider(tab_effects, 'Blur', '-BLUR-', 0, 10, 0)
-    add_slider(tab_effects, 'Noise Reduction', '-NOISE-', 0, 5, 0)
-    add_slider(tab_effects, 'Pixelate', '-PIXELATE-', 1, 50, 1)
-    add_slider(tab_effects, 'Posterize', '-POSTERIZE-', 1, 8, 8)
-    add_slider(tab_effects, 'Solarize', '-SOLARIZE-', 0, 255, 255)
-    add_slider(tab_effects, 'Threshold', '-THRESHOLD-', 0, 255, 255)
-    add_slider(tab_effects, 'Vignette', '-VIGNETTE-', 0, 100, 0)
-    add_slider(tab_effects, 'Sepia', '-SEPIA-', 0, 100, 0)
     
-    # Artistic Tab (New)
+    # Use grid for sliders
+    tab_effects.columnconfigure(1, weight=1)
+    
+    add_control_slider(tab_effects, 'Blur', '-BLUR-', 0, 20, 0, row=0)
+    add_control_slider(tab_effects, 'Box Blur', '-BOX_BLUR-', 0, 20, 0, row=1)
+    add_control_slider(tab_effects, 'Noise Red.', '-NOISE-', 0, 10, 0, row=2)
+    add_control_slider(tab_effects, 'Pixelate', '-PIXELATE-', 1, 50, 1, row=3)
+    add_control_slider(tab_effects, 'Posterize', '-POSTERIZE-', 1, 8, 8, row=4)
+    add_control_slider(tab_effects, 'Solarize', '-SOLARIZE-', 0, 255, 255, row=5)
+    add_control_slider(tab_effects, 'Threshold', '-THRESHOLD-', 0, 255, 255, row=6)
+    add_control_slider(tab_effects, 'Vignette', '-VIGNETTE-', 0, 100, 0, row=7)
+    add_control_slider(tab_effects, 'Sepia', '-SEPIA-', 0, 100, 0, row=8)
+    add_control_slider(tab_effects, 'Min Filter', '-MIN_FILTER-', 0, 10, 0, row=9)
+    add_control_slider(tab_effects, 'Max Filter', '-MAX_FILTER-', 0, 10, 0, row=10)
+    
+    # --- Artistic Tab ---
     tab_artistic = ttk.Frame(notebook)
     notebook.add(tab_artistic, text='Artistic')
-    add_slider(tab_artistic, 'Chromatic Aberration', '-CHROMATIC-', 0, 20, 0)
-    add_slider(tab_artistic, 'Scanlines', '-SCANLINE-', 0, 255, 0)
+    tab_artistic.columnconfigure(1, weight=1)
     
-    # Filters Tab
+    add_control_slider(tab_artistic, 'Chromatic', '-CHROMATIC-', 0, 50, 0, row=0)
+    add_control_slider(tab_artistic, 'Scanlines', '-SCANLINE-', 0, 255, 0, row=1)
+    
+    # --- Filters Tab ---
     tab_filters = ttk.Frame(notebook)
     notebook.add(tab_filters, text='Filters')
-    f_grid = ttk.Frame(tab_filters)
+    
+    f_grid = ttk.LabelFrame(tab_filters, text="Toggles")
     f_grid.pack(fill='x', padx=5, pady=5)
-    add_checkbox(f_grid, 'Detail', '-DETAIL-').grid(row=0, column=0, sticky='w')
-    add_checkbox(f_grid, 'Edge Enhance', '-EDGE-').grid(row=0, column=1, sticky='w')
-    add_checkbox(f_grid, 'Emboss', '-EMBOSS-').grid(row=1, column=0, sticky='w')
-    add_checkbox(f_grid, 'Contour', '-CONTOUR-').grid(row=1, column=1, sticky='w')
-    add_checkbox(f_grid, 'Invert', '-INVERT-').grid(row=2, column=0, sticky='w')
-    add_checkbox(f_grid, 'Grayscale', '-GRAYSCALE-').grid(row=2, column=1, sticky='w')
-    add_checkbox(f_grid, 'Auto Contrast', '-AUTO_CONTRAST-').grid(row=3, column=0, sticky='w')
-    add_checkbox(f_grid, 'Equalize', '-EQUALIZE-').grid(row=3, column=1, sticky='w')
     
-    # Adjustments Tab
+    add_checkbox(f_grid, 'Detail', '-DETAIL-', row=0, col=0)
+    add_checkbox(f_grid, 'Edge Enhance', '-EDGE-', row=0, col=1)
+    add_checkbox(f_grid, 'Emboss', '-EMBOSS-', row=1, col=0)
+    add_checkbox(f_grid, 'Contour', '-CONTOUR-', row=1, col=1)
+    add_checkbox(f_grid, 'Invert', '-INVERT-', row=2, col=0)
+    add_checkbox(f_grid, 'Grayscale', '-GRAYSCALE-', row=2, col=1)
+    add_checkbox(f_grid, 'Auto Contrast', '-AUTO_CONTRAST-', row=3, col=0)
+    add_checkbox(f_grid, 'Equalize', '-EQUALIZE-', row=3, col=1)
+    
+    # --- Adjustments Tab ---
     tab_adjust = ttk.Frame(notebook)
-    notebook.add(tab_adjust, text='Adjustments')
-    add_slider(tab_adjust, 'Contrast', '-CONTRAST-', 0.0, 2.0, 1.0, 0.1)
-    add_slider(tab_adjust, 'Brightness', '-BRIGHTNESS-', 0.0, 2.0, 1.0, 0.1)
-    add_slider(tab_adjust, 'Gamma', '-GAMMA-', 0.1, 3.0, 1.0, 0.1)
-    add_slider(tab_adjust, 'Sharpness', '-SHARPNESS-', 0.0, 2.0, 1.0, 0.1)
-    add_slider(tab_adjust, 'Unsharp Mask', '-UNSHARP-', 0.0, 10.0, 0.0, 0.5)
+    notebook.add(tab_adjust, text='Adjust')
+    tab_adjust.columnconfigure(1, weight=1)
     
-    # Color Tab
+    add_control_slider(tab_adjust, 'Contrast', '-CONTRAST-', 0.0, 3.0, 1.0, 0.05, row=0)
+    add_control_slider(tab_adjust, 'Brightness', '-BRIGHTNESS-', 0.0, 3.0, 1.0, 0.05, row=1)
+    add_control_slider(tab_adjust, 'Gamma', '-GAMMA-', 0.1, 5.0, 1.0, 0.05, row=2)
+    add_control_slider(tab_adjust, 'Sharpness', '-SHARPNESS-', 0.0, 5.0, 1.0, 0.1, row=3)
+    add_control_slider(tab_adjust, 'Unsharp', '-UNSHARP-', 0.0, 20.0, 0.0, 0.5, row=4)
+    
+    # --- Color Tab ---
     tab_color = ttk.Frame(notebook)
     notebook.add(tab_color, text='Color')
-    add_slider(tab_color, 'Temperature', '-TEMPERATURE-', -100, 100, 0)
-    add_slider(tab_color, 'Hue', '-HUE-', -180, 180, 0)
-    add_slider(tab_color, 'Saturation', '-COLOR-', 0.0, 2.0, 1.0, 0.1)
-    add_slider(tab_color, 'Red', '-R_FACTOR-', 0.0, 2.0, 1.0, 0.1)
-    add_slider(tab_color, 'Green', '-G_FACTOR-', 0.0, 2.0, 1.0, 0.1)
-    add_slider(tab_color, 'Blue', '-B_FACTOR-', 0.0, 2.0, 1.0, 0.1)
+    tab_color.columnconfigure(1, weight=1)
     
-    # Transform Tab
+    add_control_slider(tab_color, 'Temp.', '-TEMPERATURE-', -100, 100, 0, row=0)
+    add_control_slider(tab_color, 'Tint', '-TINT-', -100, 100, 0, row=1)
+    add_control_slider(tab_color, 'Hue', '-HUE-', -180, 180, 0, row=2)
+    add_control_slider(tab_color, 'Saturation', '-COLOR-', 0.0, 3.0, 1.0, 0.1, row=3)
+    
+    ttk.Separator(tab_color, orient='horizontal').grid(row=4, column=0, columnspan=3, sticky='ew', pady=5)
+    
+    add_control_slider(tab_color, 'Red', '-R_FACTOR-', 0.0, 3.0, 1.0, 0.05, row=5)
+    add_control_slider(tab_color, 'Green', '-G_FACTOR-', 0.0, 3.0, 1.0, 0.05, row=6)
+    add_control_slider(tab_color, 'Blue', '-B_FACTOR-', 0.0, 3.0, 1.0, 0.05, row=7)
+    
+    # --- Transform Tab ---
     tab_transform = ttk.Frame(notebook)
     notebook.add(tab_transform, text='Transform')
-    t_grid = ttk.Frame(tab_transform)
-    t_grid.pack(fill='x', padx=5, pady=5)
-    add_checkbox(t_grid, 'Flip X', '-FLIPX-').pack(side='left')
-    add_checkbox(t_grid, 'Flip Y', '-FLIPY-').pack(side='left')
+    tab_transform.columnconfigure(1, weight=1)
     
-    add_slider(tab_transform, 'Rotation', '-ROTATION-', 0, 360, 0)
+    t_grid = ttk.Frame(tab_transform)
+    t_grid.grid(row=0, column=0, columnspan=3, sticky='w', padx=5, pady=5)
+    
+    # Fix: Use grid instead of pack for these checkboxes inside t_grid which is managed by grid
+    add_checkbox(t_grid, 'Flip X', '-FLIPX-', row=0, col=0)
+    add_checkbox(t_grid, 'Flip Y', '-FLIPY-', row=0, col=1)
+    
+    add_control_slider(tab_transform, 'Rotation', '-ROTATION-', 0, 360, 0, row=1)
+    
     rot_btn_frame = ttk.Frame(tab_transform)
-    rot_btn_frame.pack(fill='x', padx=5)
+    rot_btn_frame.grid(row=2, column=0, columnspan=3, sticky='ew', padx=5)
     ttk.Button(rot_btn_frame, text='-90°', command=rotate_m90).pack(side='left', expand=True)
     ttk.Button(rot_btn_frame, text='+90°', command=rotate_p90).pack(side='left', expand=True)
     
-    add_slider(tab_transform, 'Scale %', '-SCALE-', 10, 200, 100)
+    add_control_slider(tab_transform, 'Scale %', '-SCALE-', 10, 400, 100, row=3)
     
     crop_frame = ttk.LabelFrame(tab_transform, text='Crop %')
-    crop_frame.pack(fill='x', padx=5, pady=2)
-    # L, R, T, B sliders
-    # To save space, maybe 2x2 grid
-    c_grid = ttk.Frame(crop_frame)
-    c_grid.pack(fill='x')
+    crop_frame.grid(row=4, column=0, columnspan=3, sticky='ew', padx=5, pady=5)
     
     # Helper for crop sliders
     def add_crop_slider(parent, label, key, row, col):
-        ttk.Label(parent, text=label).grid(row=row, column=col*2, sticky='e')
+        ttk.Label(parent, text=label).grid(row=row, column=col*2, sticky='e', padx=2)
         var = tk.DoubleVar(value=0)
         gui_vars[key] = var
         defaults[key] = 0
-        s = tk.Scale(parent, from_=0, to=45, orient='horizontal', variable=var, command=on_change)
-        s.grid(row=row, column=col*2+1, sticky='ew')
+        s = ttk.Scale(parent, from_=0, to=45, orient='horizontal', variable=var, command=on_change)
+        s.grid(row=row, column=col*2+1, sticky='ew', padx=2)
         s.bind("<ButtonRelease-1>", save_history)
         
-    add_crop_slider(c_grid, 'L', '-CROP_L-', 0, 0)
-    add_crop_slider(c_grid, 'R', '-CROP_R-', 0, 1)
-    add_crop_slider(c_grid, 'T', '-CROP_T-', 1, 0)
-    add_crop_slider(c_grid, 'B', '-CROP_B-', 1, 1)
+    add_crop_slider(crop_frame, 'L', '-CROP_L-', 0, 0)
+    add_crop_slider(crop_frame, 'R', '-CROP_R-', 0, 1)
+    add_crop_slider(crop_frame, 'T', '-CROP_T-', 1, 0)
+    add_crop_slider(crop_frame, 'B', '-CROP_B-', 1, 1)
     
-    # Border Tab
+    # --- Border Tab ---
     tab_border = ttk.Frame(notebook)
     notebook.add(tab_border, text='Border')
-    add_slider(tab_border, 'Size (px)', '-BORDER_SIZE-', 0, 100, 0)
+    tab_border.columnconfigure(1, weight=1)
+    
+    add_control_slider(tab_border, 'Size (px)', '-BORDER_SIZE-', 0, 200, 0, row=0)
     
     b_col_frame = ttk.Frame(tab_border)
-    b_col_frame.pack(fill='x', padx=5, pady=5)
+    b_col_frame.grid(row=1, column=0, columnspan=3, sticky='w', padx=5, pady=5)
     ttk.Label(b_col_frame, text='Color').pack(side='left')
     
     b_col_var = tk.StringVar(value='#FFFFFF')
@@ -898,12 +1045,13 @@ if __name__ == "__main__":
     b_col_btn.configure(command=lambda: pick_color('-BORDER_COLOR-'))
     b_col_btn.pack(side='left', padx=5)
     
-    # Watermark Tab (New)
+    # --- Watermark Tab ---
     tab_watermark = ttk.Frame(notebook)
     notebook.add(tab_watermark, text='Watermark')
+    tab_watermark.columnconfigure(1, weight=1)
     
     wm_frame = ttk.Frame(tab_watermark)
-    wm_frame.pack(fill='x', padx=5, pady=5)
+    wm_frame.grid(row=0, column=0, columnspan=3, sticky='ew', padx=5, pady=5)
     ttk.Label(wm_frame, text='Image:').pack(side='left')
     
     wm_var = tk.StringVar(value='')
@@ -917,32 +1065,32 @@ if __name__ == "__main__":
     wm_btn = ttk.Button(wm_frame, text='Browse', command=pick_watermark)
     wm_btn.pack(side='left')
     
-    add_slider(tab_watermark, 'Opacity', '-WATERMARK_OPACITY-', 0, 255, 255)
-    add_slider(tab_watermark, 'Scale %', '-WATERMARK_SCALE-', 10, 200, 100)
-    add_slider(tab_watermark, 'X %', '-WATERMARK_X-', 0, 100, 50)
-    add_slider(tab_watermark, 'Y %', '-WATERMARK_Y-', 0, 100, 50)
+    add_control_slider(tab_watermark, 'Opacity', '-WATERMARK_OPACITY-', 0, 255, 255, row=1)
+    add_control_slider(tab_watermark, 'Scale %', '-WATERMARK_SCALE-', 10, 200, 100, row=2)
+    add_control_slider(tab_watermark, 'X %', '-WATERMARK_X-', 0, 100, 50, row=3)
+    add_control_slider(tab_watermark, 'Y %', '-WATERMARK_Y-', 0, 100, 50, row=4)
 
-    # Text Tab
+    # --- Text Tab ---
     tab_text = ttk.Frame(notebook)
     notebook.add(tab_text, text='Text')
+    tab_text.columnconfigure(1, weight=1)
     
     txt_frame = ttk.Frame(tab_text)
-    txt_frame.pack(fill='x', padx=5, pady=5)
+    txt_frame.grid(row=0, column=0, columnspan=3, sticky='ew', padx=5, pady=5)
     ttk.Label(txt_frame, text='Text:').pack(side='left')
     txt_var = tk.StringVar(value='')
     gui_vars['-TEXT_CONTENT-'] = txt_var
     defaults['-TEXT_CONTENT-'] = ''
-    # Entry needs to trigger update on change? Maybe on return or focus out?
-    # Or trace variable
+    
     txt_entry = ttk.Entry(txt_frame, textvariable=txt_var)
     txt_entry.pack(side='left', fill='x', expand=True)
     txt_var.trace_add('write', lambda *args: [on_change(), save_history()])
     
-    add_slider(tab_text, 'Size', '-TEXT_SIZE-', 10, 200, 20)
-    add_slider(tab_text, 'Opacity', '-TEXT_OPACITY-', 0, 255, 255)
+    add_control_slider(tab_text, 'Size', '-TEXT_SIZE-', 10, 300, 20, row=1)
+    add_control_slider(tab_text, 'Opacity', '-TEXT_OPACITY-', 0, 255, 255, row=2)
     
     t_col_frame = ttk.Frame(tab_text)
-    t_col_frame.pack(fill='x', padx=5, pady=5)
+    t_col_frame.grid(row=3, column=0, columnspan=3, sticky='w', padx=5, pady=5)
     ttk.Label(t_col_frame, text='Color').pack(side='left')
     
     t_col_var = tk.StringVar(value='#FFFFFF')
@@ -957,29 +1105,26 @@ if __name__ == "__main__":
     t_col_btn.configure(command=lambda: pick_color('-TEXT_COLOR-'))
     t_col_btn.pack(side='left', padx=5)
     
-    add_slider(tab_text, 'X %', '-TEXT_X-', 0, 100, 50)
-    add_slider(tab_text, 'Y %', '-TEXT_Y-', 0, 100, 50)
+    add_control_slider(tab_text, 'X %', '-TEXT_X-', 0, 100, 50, row=4)
+    add_control_slider(tab_text, 'Y %', '-TEXT_Y-', 0, 100, 50, row=5)
     
-    # Bottom Buttons
+    # Bottom Buttons (Quick Actions)
     btn_frame = ttk.Frame(control_frame)
     btn_frame.pack(fill='x', pady=10)
-    ttk.Button(btn_frame, text='Save', command=save_image).pack(side='left', expand=True)
-    ttk.Button(btn_frame, text='Reset', command=reset_controls).pack(side='left', expand=True)
-    ttk.Button(btn_frame, text='Undo', command=undo).pack(side='left', expand=True)
-    ttk.Button(btn_frame, text='Redo', command=redo).pack(side='left', expand=True)
-    
-    btn_frame2 = ttk.Frame(control_frame)
-    btn_frame2.pack(fill='x', pady=5)
-    ttk.Button(btn_frame2, text='Save Preset', command=save_preset).pack(side='left', expand=True)
-    ttk.Button(btn_frame2, text='Load Preset', command=load_preset).pack(side='left', expand=True)
-    ttk.Button(btn_frame2, text='Batch', command=batch_process).pack(side='left', expand=True)
-    
-    info = f"Image Editor v0.12\n\nPython: {platform.python_version()}\nPillow: {Image.__version__}\nTkinter: {tk.TkVersion}\nOS: {platform.system()} {platform.release()}"
-    ttk.Button(control_frame, text='About', command=lambda: show_message('About', info)).pack(pady=5)
+    ttk.Button(btn_frame, text='Save', command=save_image).pack(side='left', expand=True, padx=2)
+    ttk.Button(btn_frame, text='Reset', command=reset_controls).pack(side='left', expand=True, padx=2)
+    ttk.Button(btn_frame, text='Undo', command=undo).pack(side='left', expand=True, padx=2)
+    ttk.Button(btn_frame, text='Redo', command=redo).pack(side='left', expand=True, padx=2)
     
     # Image Area
     image_label = ttk.Label(image_frame)
     image_label.pack(fill=tk.BOTH, expand=True)
+    
+    # Status Bar
+    status_var = tk.StringVar()
+    status_var.set("Ready")
+    status_bar = ttk.Label(root, textvariable=status_var, relief=tk.SUNKEN, anchor='w')
+    status_bar.pack(side=tk.BOTTOM, fill=tk.X)
     
     # Initial update
     prev_values = get_values()
