@@ -7,6 +7,13 @@ import os
 import json
 import ctypes
 import platform
+import copy
+
+# Try importing rawpy for RAW support
+try:
+    import rawpy
+except ImportError:
+    rawpy = None
 
 # High DPI Awareness (Windows)
 try:
@@ -434,7 +441,7 @@ def apply_effects(original, values):
         if image.mode != 'RGBA':
             image = image.convert('RGBA')
         image = Image.alpha_composite(image, overlay)
-
+        
     # apply vignette
     if vignette > 0:
         w, h = image.size
@@ -562,93 +569,270 @@ def apply_effects(original, values):
 # Global state
 gui_vars = {}
 defaults = {}
-original_image = None
-current_image = None
+# Layer system: Each layer is {'name': str, 'original': Image, 'current': Image, 'settings': dict, 'visible': bool, 'opacity': 255}
+layers = []
+active_layer_idx = 0
 history = []
 history_index = -1
 prev_values = {}
-image_label = None
+image_canvas = None
 status_var = None
+layer_listbox = None
+last_draw_pos = None
 
 def get_values():
     return {k: v.get() for k, v in gui_vars.items()}
 
-def update_image(original, values=None):
-    global current_image
-    if values is None:
-        values = get_values()
+def set_values(values):
+    for k, v in values.items():
+        if k in gui_vars:
+            gui_vars[k].set(v)
+
+def load_image_from_path(path):
+    ext = os.path.splitext(path)[1].lower()
+    if ext in ['.dng', '.cr2', '.nef', '.arw', '.orf', '.rw2'] and rawpy:
+        try:
+            with rawpy.imread(path) as raw:
+                rgb = raw.postprocess()
+                return Image.fromarray(rgb)
+        except Exception as e:
+            print(f"RAW load error: {e}")
+            return Image.open(path)
+    else:
+        return Image.open(path)
+
+def init_layers(image):
+    global layers, active_layer_idx
+    if image.mode in ('P', 'CMYK', 'HSV'):
+        image = image.convert('RGBA')
+    elif image.mode != 'RGBA':
+        image = image.convert('RGBA')
+        
+    layers = [{
+        'name': 'Background',
+        'original': image.copy(),
+        'current': image.copy(),
+        'settings': get_values(),
+        'visible': True,
+        'opacity': 255
+    }]
+    active_layer_idx = 0
+    update_layer_list()
+
+def add_layer():
+    global layers, active_layer_idx
+    if not layers: return
+    w, h = layers[0]['original'].size
+    new_img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    
+    layers.append({
+        'name': f'Layer {len(layers)}',
+        'original': new_img,
+        'current': new_img,
+        'settings': defaults.copy(),
+        'visible': True,
+        'opacity': 255
+    })
+    active_layer_idx = len(layers) - 1
+    update_layer_list()
+    switch_layer(active_layer_idx)
+    save_history()
+
+def delete_layer():
+    global layers, active_layer_idx
+    if len(layers) > 1:
+        layers.pop(active_layer_idx)
+        if active_layer_idx >= len(layers):
+            active_layer_idx = len(layers) - 1
+        update_layer_list()
+        switch_layer(active_layer_idx)
+        save_history()
+    else:
+        show_message("Error", "Cannot delete the last layer.", True)
+
+def switch_layer(index):
+    global active_layer_idx
+    if 0 <= index < len(layers):
+        # Save current settings to old layer
+        layers[active_layer_idx]['settings'] = get_values()
+        
+        active_layer_idx = index
+        # Load new layer settings
+        set_values(layers[active_layer_idx]['settings'])
+        
+        update_layer_list()
+        update_image()
+
+def update_layer_list():
+    if layer_listbox:
+        layer_listbox.delete(0, tk.END)
+        for i, layer in enumerate(layers):
+            status = "[v]" if layer['visible'] else "[ ]"
+            name = layer['name']
+            if i == active_layer_idx:
+                name = f"> {name}"
+            layer_listbox.insert(tk.END, f"{status} {name}")
+
+def on_layer_select(event):
+    selection = layer_listbox.curselection()
+    if selection:
+        index = selection[0]
+        switch_layer(index)
+
+def toggle_layer_visibility():
+    if 0 <= active_layer_idx < len(layers):
+        layers[active_layer_idx]['visible'] = not layers[active_layer_idx]['visible']
+        update_layer_list()
+        update_image()
+        save_history()
+
+def update_image(original=None, values=None):
+    global layers
+    if not layers: return
+
+    # 1. Apply effects to active layer
+    active_layer = layers[active_layer_idx]
+    current_vals = get_values()
     
     try:
-        current_image = apply_effects(original, values)
+        processed = apply_effects(active_layer['original'], current_vals)
+        active_layer['current'] = processed
+        active_layer['settings'] = current_vals
+    except Exception as e:
+        print(f"Error processing layer: {e}")
+
+    # 2. Composite all layers
+    final_image = None
+    for layer in layers:
+        if not layer['visible']:
+            continue
+            
+        img = layer['current']
         
-        # Resize for display
-        display_image = current_image.copy()
-        
-        # Get display area size? For now fixed max size
+        # Apply layer opacity
+        if layer['opacity'] < 255:
+            r, g, b, a = img.split()
+            a = a.point(lambda i: int(i * (layer['opacity'] / 255)))
+            img = Image.merge('RGBA', (r, g, b, a))
+            
+        if final_image is None:
+            final_image = img
+        else:
+            if img.size != final_image.size:
+                img = img.resize(final_image.size, Image.Resampling.LANCZOS)
+            final_image = Image.alpha_composite(final_image, img)
+            
+    if final_image is None:
+        final_image = Image.new('RGBA', (800, 600), (0,0,0,0))
+
+    # 3. Display
+    try:
+        display_image = final_image.copy()
         max_w, max_h = 1000, 800
         display_image.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
         
         tk_img = ImageTk.PhotoImage(display_image)
-        image_label.configure(image=tk_img)
-        image_label.image = tk_img
         
-        update_status_bar()
+        if image_canvas:
+            image_canvas.delete("all")
+            c_w = image_canvas.winfo_width()
+            c_h = image_canvas.winfo_height()
+            if c_w < 1: c_w = 1000
+            if c_h < 1: c_h = 800
+            
+            x_pos = c_w // 2
+            y_pos = c_h // 2
+            
+            image_canvas.create_image(x_pos, y_pos, image=tk_img, anchor='center')
+            image_canvas.image = tk_img 
+            
+            image_canvas.scale_factor = display_image.width / final_image.width
+            image_canvas.offset_x = x_pos - (display_image.width // 2)
+            image_canvas.offset_y = y_pos - (display_image.height // 2)
+        
+        update_status_bar(final_image)
     except Exception as e:
-        print(f"Error updating image: {e}")
+        print(f"Error updating display: {e}")
 
-def update_status_bar():
-    if current_image and status_var:
-        w, h = current_image.size
-        mode = current_image.mode
-        status_var.set(f"Size: {w}x{h} | Mode: {mode} | Zoom: Fit")
+def update_status_bar(img=None):
+    if img and status_var:
+        w, h = img.size
+        mode = img.mode
+        status_var.set(f"Size: {w}x{h} | Mode: {mode} | Layers: {len(layers)}")
 
 def on_change(*args):
     global history, history_index, prev_values
-    values = get_values()
-    update_image(original_image, values)
+    update_image()
+
+def get_state():
+    # Deep copy layers to preserve image state
+    # We need to manually copy images because deepcopy might be slow or problematic with some objects
+    layers_copy = []
+    for layer in layers:
+        new_layer = layer.copy()
+        new_layer['original'] = layer['original'].copy()
+        new_layer['current'] = layer['current'].copy()
+        new_layer['settings'] = layer['settings'].copy()
+        layers_copy.append(new_layer)
+    return {
+        'layers': layers_copy,
+        'active_layer_idx': active_layer_idx,
+        'gui_vars': get_values()
+    }
+
+def restore_state(state):
+    global layers, active_layer_idx
+    layers = state['layers']
+    active_layer_idx = state['active_layer_idx']
+    set_values(state['gui_vars'])
+    update_layer_list()
+    update_image()
 
 def save_history(event=None):
-    global history, history_index, prev_values
-    values = get_values()
-    if values != prev_values:
-        if history_index < len(history) - 1:
-            history = history[:history_index+1]
-        history.append(values)
-        history_index += 1
-        if len(history) > 50:
-            history.pop(0)
-            history_index -= 1
-        prev_values = values.copy()
+    global history, history_index
+    current_state = get_state()
+    
+    # Check if state actually changed to avoid duplicates
+    if history_index >= 0:
+        last_state = history[history_index]
+        # Simple check on gui_vars and layer count/idx for performance
+        # Full image comparison is too heavy
+        if last_state['gui_vars'] == current_state['gui_vars'] and \
+           len(last_state['layers']) == len(current_state['layers']) and \
+           last_state['active_layer_idx'] == current_state['active_layer_idx']:
+               # If painting, we must assume change. 
+               # For now, we just save. Optimization can be added later.
+               pass
+
+    if history_index < len(history) - 1:
+        history = history[:history_index+1]
+    
+    history.append(current_state)
+    history_index += 1
+    
+    # Limit history to 20 steps to save memory (images are heavy)
+    if len(history) > 20:
+        history.pop(0)
+        history_index -= 1
 
 def reset_controls():
     for k, v in defaults.items():
         if k in gui_vars:
             gui_vars[k].set(v)
     save_history()
-    update_image(original_image)
+    update_image()
 
 def undo():
-    global history_index, prev_values
+    global history_index
     if history_index > 0:
         history_index -= 1
-        restore_values = history[history_index]
-        set_values(restore_values)
-        prev_values = restore_values.copy()
-        update_image(original_image, restore_values)
+        restore_state(history[history_index])
 
 def redo():
-    global history_index, prev_values
+    global history_index
     if history_index < len(history) - 1:
         history_index += 1
-        restore_values = history[history_index]
-        set_values(restore_values)
-        prev_values = restore_values.copy()
-        update_image(original_image, restore_values)
-
-def set_values(values):
-    for k, v in values.items():
-        if k in gui_vars:
-            gui_vars[k].set(v)
+        restore_state(history[history_index])
 
 def save_preset():
     preset_path = get_file_path('Save Preset', save_as=True, file_types=[("JSON", "*.json")], default_extension=".json")
@@ -669,7 +853,7 @@ def load_preset():
                 data = json.load(f)
             set_values(data)
             save_history()
-            update_image(original_image)
+            update_image()
         except Exception as e:
             show_message('Error', f'Error loading preset: {e}', is_error=True)
 
@@ -712,6 +896,27 @@ def batch_process():
                 show_message('Error', f'Error reading folder: {e}', is_error=True)
 
 def save_image():
+    # Save the composite image
+    if not layers: return
+    
+    # Re-composite at full resolution
+    final_image = None
+    for layer in layers:
+        if not layer['visible']: continue
+        img = layer['current']
+        if layer['opacity'] < 255:
+            r, g, b, a = img.split()
+            a = a.point(lambda i: int(i * (layer['opacity'] / 255)))
+            img = Image.merge('RGBA', (r, g, b, a))
+        if final_image is None:
+            final_image = img
+        else:
+            if img.size != final_image.size:
+                img = img.resize(final_image.size, Image.Resampling.LANCZOS)
+            final_image = Image.alpha_composite(final_image, img)
+            
+    if not final_image: return
+
     save_path = get_file_path('Save', save_as=True, file_types=[("PNG", "*.png"), ("JPEG", "*.jpg"), ("All Files", "*.*")], default_extension=".png")
     if save_path:
         filename, file_extension = os.path.splitext(save_path)
@@ -720,29 +925,29 @@ def save_image():
             file_extension = '.png'
         
         if file_extension.lower() in ['.jpg', '.jpeg']:
-            if current_image.mode in ('RGBA', 'LA'):
-                background = Image.new(current_image.mode[:-1], current_image.size, (255, 255, 255))
-                background.paste(current_image, current_image.split()[-1])
+            if final_image.mode in ('RGBA', 'LA'):
+                background = Image.new(final_image.mode[:-1], final_image.size, (255, 255, 255))
+                background.paste(final_image, final_image.split()[-1])
                 image_to_save = background
             else:
-                image_to_save = current_image
+                image_to_save = final_image
             image_to_save.save(save_path, quality=95)
         else:
-            current_image.save(save_path)
+            final_image.save(save_path)
 
 def rotate_m90():
     curr = gui_vars['-ROTATION-'].get()
     new_val = (curr - 90) % 360
     gui_vars['-ROTATION-'].set(new_val)
     save_history()
-    update_image(original_image)
+    update_image()
 
 def rotate_p90():
     curr = gui_vars['-ROTATION-'].get()
     new_val = (curr + 90) % 360
     gui_vars['-ROTATION-'].set(new_val)
     save_history()
-    update_image(original_image)
+    update_image()
 
 def pick_color(key):
     try:
@@ -754,17 +959,17 @@ def pick_color(key):
     if color:
         gui_vars[key].set(color)
         save_history()
-        update_image(original_image)
+        update_image()
 
 def pick_watermark():
     path = get_file_path("Select Watermark", file_types=[("Images", "*.png;*.jpg;*.jpeg;*.bmp")])
     if path:
         gui_vars['-WATERMARK_PATH-'].set(path)
         save_history()
-        update_image(original_image)
+        update_image()
 
 def show_histogram():
-    if current_image:
+    if layers and layers[active_layer_idx]['current']:
         hist_win = tk.Toplevel()
         hist_win.title("Histogram")
         hist_win.geometry("300x200")
@@ -772,12 +977,11 @@ def show_histogram():
         canvas = tk.Canvas(hist_win, bg='white')
         canvas.pack(fill=tk.BOTH, expand=True)
         
-        img = current_image
+        img = layers[active_layer_idx]['current']
         if img.mode != 'RGB':
             img = img.convert('RGB')
             
         hist = img.histogram()
-        # hist has 768 values (256 R, 256 G, 256 B)
         
         r_hist = hist[0:256]
         g_hist = hist[256:512]
@@ -789,62 +993,94 @@ def show_histogram():
         w = 300
         h = 200
         
-        # Draw
         for i in range(256):
             x = i * (w / 256)
-            
-            # Red
             h_r = (r_hist[i] / max_val) * h
             canvas.create_line(x, h, x, h - h_r, fill='red', alpha=0.5)
-            
-            # Green
             h_g = (g_hist[i] / max_val) * h
             canvas.create_line(x, h, x, h - h_g, fill='green', alpha=0.5)
-            
-            # Blue
             h_b = (b_hist[i] / max_val) * h
             canvas.create_line(x, h, x, h - h_b, fill='blue', alpha=0.5)
 
+# Brush Logic
+def start_paint(event):
+    global last_draw_pos
+    last_draw_pos = (event.x, event.y)
+
+def paint(event):
+    global last_draw_pos, layers, active_layer_idx
+    if not gui_vars.get('-BRUSH_ACTIVE-', tk.BooleanVar(value=False)).get():
+        return
+        
+    if last_draw_pos:
+        x1, y1 = last_draw_pos
+        x2, y2 = event.x, event.y
+        
+        try:
+            scale = getattr(image_canvas, 'scale_factor', 1)
+            off_x = getattr(image_canvas, 'offset_x', 0)
+            off_y = getattr(image_canvas, 'offset_y', 0)
+            
+            img_x1 = (x1 - off_x) / scale
+            img_y1 = (y1 - off_y) / scale
+            img_x2 = (x2 - off_x) / scale
+            img_y2 = (y2 - off_y) / scale
+            
+            layer = layers[active_layer_idx]
+            draw = ImageDraw.Draw(layer['original'])
+            
+            brush_size = int(gui_vars['-BRUSH_SIZE-'].get())
+            brush_color = gui_vars['-BRUSH_COLOR-'].get()
+            brush_opacity = int(gui_vars['-BRUSH_OPACITY-'].get())
+            
+            r, g, b = ImageColor.getrgb(brush_color)
+            color = (r, g, b, brush_opacity)
+            
+            draw.line([(img_x1, img_y1), (img_x2, img_y2)], fill=color, width=brush_size, joint='curve')
+            r = brush_size / 2
+            draw.ellipse((img_x1-r, img_y1-r, img_x1+r, img_y1+r), fill=color)
+            draw.ellipse((img_x2-r, img_y2-r, img_x2+r, img_y2+r), fill=color)
+            
+            last_draw_pos = (x2, y2)
+            update_image()
+            
+        except Exception as e:
+            pass
+
+def stop_paint(event):
+    global last_draw_pos
+    last_draw_pos = None
+    save_history()
+
+def on_canvas_resize(event):
+    update_image()
+
 # UI Construction Helpers
 def add_control_slider(parent, label, key, from_, to, default, resolution=1, row=0):
-    # Label
     ttk.Label(parent, text=label).grid(row=row, column=0, sticky='w', padx=5, pady=2)
-    
     var = tk.DoubleVar(value=default)
     gui_vars[key] = var
     defaults[key] = default
-    
-    # Scale
     scale = ttk.Scale(parent, from_=from_, to=to, orient='horizontal', variable=var, command=on_change)
     scale.grid(row=row, column=1, sticky='ew', padx=5, pady=2)
-    
-    # Bind release for history
     scale.bind("<ButtonRelease-1>", save_history)
-    
-    # Value Entry
     entry = ttk.Entry(parent, textvariable=var, width=5)
     entry.grid(row=row, column=2, sticky='e', padx=5, pady=2)
-    
-    # Bind entry return to update
     entry.bind('<Return>', lambda e: [on_change(), save_history()])
-    
     return scale
 
 def add_checkbox(parent, label, key, default=False, row=0, col=0):
     var = tk.BooleanVar(value=default)
     gui_vars[key] = var
     defaults[key] = default
-    
     chk = ttk.Checkbutton(parent, text=label, variable=var, command=lambda: [on_change(), save_history()])
     chk.grid(row=row, column=col, sticky='w', padx=5, pady=2)
     return chk
 
 def create_menu(root):
     menubar = Menu(root)
-    
-    # File Menu
     file_menu = Menu(menubar, tearoff=0)
-    file_menu.add_command(label="Open", command=lambda: show_message("Info", "Restart app to open new image")) # Limitation of current structure
+    file_menu.add_command(label="Open", command=lambda: show_message("Info", "Restart app to open new image"))
     file_menu.add_command(label="Save", command=save_image)
     file_menu.add_separator()
     file_menu.add_command(label="Batch Process", command=batch_process)
@@ -852,7 +1088,6 @@ def create_menu(root):
     file_menu.add_command(label="Exit", command=root.quit)
     menubar.add_cascade(label="File", menu=file_menu)
     
-    # Edit Menu
     edit_menu = Menu(menubar, tearoff=0)
     edit_menu.add_command(label="Undo", command=undo)
     edit_menu.add_command(label="Redo", command=redo)
@@ -863,43 +1098,33 @@ def create_menu(root):
     edit_menu.add_command(label="Load Preset", command=load_preset)
     menubar.add_cascade(label="Edit", menu=edit_menu)
     
-    # View Menu
     view_menu = Menu(menubar, tearoff=0)
     view_menu.add_command(label="Histogram", command=show_histogram)
     menubar.add_cascade(label="View", menu=view_menu)
     
-    # Help Menu
     help_menu = Menu(menubar, tearoff=0)
-    info = f"Image Editor v0.13\n\nPython: {platform.python_version()}\nPillow: {Image.__version__}\nTkinter: {tk.TkVersion}\nOS: {platform.system()} {platform.release()}"
+    info = f"Image Editor v0.14\n\nPython: {platform.python_version()}\nPillow: {Image.__version__}\nTkinter: {tk.TkVersion}\nOS: {platform.system()} {platform.release()}"
     help_menu.add_command(label="About", command=lambda: show_message('About', info))
     menubar.add_cascade(label="Help", menu=help_menu)
-    
     root.config(menu=menubar)
 
-# Main execution
 if __name__ == "__main__":
-    # Hide root window for initial dialog
     root = tk.Tk()
     root.withdraw()
     
-    image_path = get_file_path('Open')
+    image_path = get_file_path('Open', file_types=[("Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff;*.dng;*.cr2;*.nef;*.arw")])
     if not image_path:
         root.destroy()
         exit()
         
-    original_image = Image.open(image_path)
-    if original_image.mode in ('P', 'CMYK', 'HSV'):
-        original_image = original_image.convert('RGBA')
+    original_image = load_image_from_path(image_path)
     
-    # Show root window
     root.deiconify()
     root.title("IMAGE EDITOR PRO")
     root.geometry("1200x800")
     
-    # Setup Menu
     create_menu(root)
     
-    # Layout
     main_paned = tk.PanedWindow(root, orient=tk.HORIZONTAL)
     main_paned.pack(fill=tk.BOTH, expand=True)
     
@@ -909,17 +1134,44 @@ if __name__ == "__main__":
     main_paned.add(control_frame)
     main_paned.add(image_frame)
     
-    # Tabs
     notebook = ttk.Notebook(control_frame)
     notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
     
+    # --- Layers Tab ---
+    tab_layers = ttk.Frame(notebook)
+    notebook.add(tab_layers, text='Layers')
+    
+    layer_listbox = tk.Listbox(tab_layers, height=10)
+    layer_listbox.pack(fill='x', padx=5, pady=5)
+    layer_listbox.bind('<<ListboxSelect>>', on_layer_select)
+    
+    l_btn_frame = ttk.Frame(tab_layers)
+    l_btn_frame.pack(fill='x', padx=5)
+    ttk.Button(l_btn_frame, text='Add Layer', command=add_layer).pack(side='left', expand=True)
+    ttk.Button(l_btn_frame, text='Delete', command=delete_layer).pack(side='left', expand=True)
+    ttk.Button(l_btn_frame, text='Toggle Vis', command=toggle_layer_visibility).pack(side='left', expand=True)
+    
+    # --- Brush Tab ---
+    tab_brush = ttk.Frame(notebook)
+    notebook.add(tab_brush, text='Brush')
+    
+    add_checkbox(tab_brush, 'Active', '-BRUSH_ACTIVE-', row=0, col=0)
+    add_control_slider(tab_brush, 'Size', '-BRUSH_SIZE-', 1, 100, 10, row=1)
+    add_control_slider(tab_brush, 'Opacity', '-BRUSH_OPACITY-', 0, 255, 255, row=2)
+    
+    br_col_frame = ttk.Frame(tab_brush)
+    br_col_frame.grid(row=3, column=0, columnspan=3, sticky='w', padx=5, pady=5)
+    ttk.Label(br_col_frame, text='Color').pack(side='left')
+    br_col_var = tk.StringVar(value='#FF0000')
+    gui_vars['-BRUSH_COLOR-'] = br_col_var
+    defaults['-BRUSH_COLOR-'] = '#FF0000'
+    ttk.Entry(br_col_frame, textvariable=br_col_var, width=10).pack(side='left', padx=5)
+    ttk.Button(br_col_frame, text='Pick', command=lambda: pick_color('-BRUSH_COLOR-')).pack(side='left', padx=5)
+
     # --- Effects Tab ---
     tab_effects = ttk.Frame(notebook)
     notebook.add(tab_effects, text='Effects')
-    
-    # Use grid for sliders
     tab_effects.columnconfigure(1, weight=1)
-    
     add_control_slider(tab_effects, 'Blur', '-BLUR-', 0, 20, 0, row=0)
     add_control_slider(tab_effects, 'Box Blur', '-BOX_BLUR-', 0, 20, 0, row=1)
     add_control_slider(tab_effects, 'Noise Red.', '-NOISE-', 0, 10, 0, row=2)
@@ -936,17 +1188,14 @@ if __name__ == "__main__":
     tab_artistic = ttk.Frame(notebook)
     notebook.add(tab_artistic, text='Artistic')
     tab_artistic.columnconfigure(1, weight=1)
-    
     add_control_slider(tab_artistic, 'Chromatic', '-CHROMATIC-', 0, 50, 0, row=0)
     add_control_slider(tab_artistic, 'Scanlines', '-SCANLINE-', 0, 255, 0, row=1)
     
     # --- Filters Tab ---
     tab_filters = ttk.Frame(notebook)
     notebook.add(tab_filters, text='Filters')
-    
     f_grid = ttk.LabelFrame(tab_filters, text="Toggles")
     f_grid.pack(fill='x', padx=5, pady=5)
-    
     add_checkbox(f_grid, 'Detail', '-DETAIL-', row=0, col=0)
     add_checkbox(f_grid, 'Edge Enhance', '-EDGE-', row=0, col=1)
     add_checkbox(f_grid, 'Emboss', '-EMBOSS-', row=1, col=0)
@@ -960,7 +1209,6 @@ if __name__ == "__main__":
     tab_adjust = ttk.Frame(notebook)
     notebook.add(tab_adjust, text='Adjust')
     tab_adjust.columnconfigure(1, weight=1)
-    
     add_control_slider(tab_adjust, 'Contrast', '-CONTRAST-', 0.0, 3.0, 1.0, 0.05, row=0)
     add_control_slider(tab_adjust, 'Brightness', '-BRIGHTNESS-', 0.0, 3.0, 1.0, 0.05, row=1)
     add_control_slider(tab_adjust, 'Gamma', '-GAMMA-', 0.1, 5.0, 1.0, 0.05, row=2)
@@ -971,14 +1219,11 @@ if __name__ == "__main__":
     tab_color = ttk.Frame(notebook)
     notebook.add(tab_color, text='Color')
     tab_color.columnconfigure(1, weight=1)
-    
     add_control_slider(tab_color, 'Temp.', '-TEMPERATURE-', -100, 100, 0, row=0)
     add_control_slider(tab_color, 'Tint', '-TINT-', -100, 100, 0, row=1)
     add_control_slider(tab_color, 'Hue', '-HUE-', -180, 180, 0, row=2)
     add_control_slider(tab_color, 'Saturation', '-COLOR-', 0.0, 3.0, 1.0, 0.1, row=3)
-    
     ttk.Separator(tab_color, orient='horizontal').grid(row=4, column=0, columnspan=3, sticky='ew', pady=5)
-    
     add_control_slider(tab_color, 'Red', '-R_FACTOR-', 0.0, 3.0, 1.0, 0.05, row=5)
     add_control_slider(tab_color, 'Green', '-G_FACTOR-', 0.0, 3.0, 1.0, 0.05, row=6)
     add_control_slider(tab_color, 'Blue', '-B_FACTOR-', 0.0, 3.0, 1.0, 0.05, row=7)
@@ -987,27 +1232,18 @@ if __name__ == "__main__":
     tab_transform = ttk.Frame(notebook)
     notebook.add(tab_transform, text='Transform')
     tab_transform.columnconfigure(1, weight=1)
-    
     t_grid = ttk.Frame(tab_transform)
     t_grid.grid(row=0, column=0, columnspan=3, sticky='w', padx=5, pady=5)
-    
-    # Fix: Use grid instead of pack for these checkboxes inside t_grid which is managed by grid
     add_checkbox(t_grid, 'Flip X', '-FLIPX-', row=0, col=0)
     add_checkbox(t_grid, 'Flip Y', '-FLIPY-', row=0, col=1)
-    
     add_control_slider(tab_transform, 'Rotation', '-ROTATION-', 0, 360, 0, row=1)
-    
     rot_btn_frame = ttk.Frame(tab_transform)
     rot_btn_frame.grid(row=2, column=0, columnspan=3, sticky='ew', padx=5)
     ttk.Button(rot_btn_frame, text='-90°', command=rotate_m90).pack(side='left', expand=True)
     ttk.Button(rot_btn_frame, text='+90°', command=rotate_p90).pack(side='left', expand=True)
-    
     add_control_slider(tab_transform, 'Scale %', '-SCALE-', 10, 400, 100, row=3)
-    
     crop_frame = ttk.LabelFrame(tab_transform, text='Crop %')
     crop_frame.grid(row=4, column=0, columnspan=3, sticky='ew', padx=5, pady=5)
-    
-    # Helper for crop sliders
     def add_crop_slider(parent, label, key, row, col):
         ttk.Label(parent, text=label).grid(row=row, column=col*2, sticky='e', padx=2)
         var = tk.DoubleVar(value=0)
@@ -1016,7 +1252,6 @@ if __name__ == "__main__":
         s = ttk.Scale(parent, from_=0, to=45, orient='horizontal', variable=var, command=on_change)
         s.grid(row=row, column=col*2+1, sticky='ew', padx=2)
         s.bind("<ButtonRelease-1>", save_history)
-        
     add_crop_slider(crop_frame, 'L', '-CROP_L-', 0, 0)
     add_crop_slider(crop_frame, 'R', '-CROP_R-', 0, 1)
     add_crop_slider(crop_frame, 'T', '-CROP_T-', 1, 0)
@@ -1026,21 +1261,16 @@ if __name__ == "__main__":
     tab_border = ttk.Frame(notebook)
     notebook.add(tab_border, text='Border')
     tab_border.columnconfigure(1, weight=1)
-    
     add_control_slider(tab_border, 'Size (px)', '-BORDER_SIZE-', 0, 200, 0, row=0)
-    
     b_col_frame = ttk.Frame(tab_border)
     b_col_frame.grid(row=1, column=0, columnspan=3, sticky='w', padx=5, pady=5)
     ttk.Label(b_col_frame, text='Color').pack(side='left')
-    
     b_col_var = tk.StringVar(value='#FFFFFF')
     gui_vars['-BORDER_COLOR-'] = b_col_var
     defaults['-BORDER_COLOR-'] = '#FFFFFF'
-    
     b_col_entry = ttk.Entry(b_col_frame, textvariable=b_col_var, width=10)
     b_col_entry.pack(side='left', padx=5)
     b_col_var.trace_add('write', lambda *args: [on_change(), save_history()])
-    
     b_col_btn = ttk.Button(b_col_frame, text='Pick')
     b_col_btn.configure(command=lambda: pick_color('-BORDER_COLOR-'))
     b_col_btn.pack(side='left', padx=5)
@@ -1049,22 +1279,17 @@ if __name__ == "__main__":
     tab_watermark = ttk.Frame(notebook)
     notebook.add(tab_watermark, text='Watermark')
     tab_watermark.columnconfigure(1, weight=1)
-    
     wm_frame = ttk.Frame(tab_watermark)
     wm_frame.grid(row=0, column=0, columnspan=3, sticky='ew', padx=5, pady=5)
     ttk.Label(wm_frame, text='Image:').pack(side='left')
-    
     wm_var = tk.StringVar(value='')
     gui_vars['-WATERMARK_PATH-'] = wm_var
     defaults['-WATERMARK_PATH-'] = ''
-    
     wm_entry = ttk.Entry(wm_frame, textvariable=wm_var)
     wm_entry.pack(side='left', fill='x', expand=True, padx=5)
     wm_var.trace_add('write', lambda *args: [on_change(), save_history()])
-    
     wm_btn = ttk.Button(wm_frame, text='Browse', command=pick_watermark)
     wm_btn.pack(side='left')
-    
     add_control_slider(tab_watermark, 'Opacity', '-WATERMARK_OPACITY-', 0, 255, 255, row=1)
     add_control_slider(tab_watermark, 'Scale %', '-WATERMARK_SCALE-', 10, 200, 100, row=2)
     add_control_slider(tab_watermark, 'X %', '-WATERMARK_X-', 0, 100, 50, row=3)
@@ -1074,41 +1299,33 @@ if __name__ == "__main__":
     tab_text = ttk.Frame(notebook)
     notebook.add(tab_text, text='Text')
     tab_text.columnconfigure(1, weight=1)
-    
     txt_frame = ttk.Frame(tab_text)
     txt_frame.grid(row=0, column=0, columnspan=3, sticky='ew', padx=5, pady=5)
     ttk.Label(txt_frame, text='Text:').pack(side='left')
     txt_var = tk.StringVar(value='')
     gui_vars['-TEXT_CONTENT-'] = txt_var
     defaults['-TEXT_CONTENT-'] = ''
-    
     txt_entry = ttk.Entry(txt_frame, textvariable=txt_var)
     txt_entry.pack(side='left', fill='x', expand=True)
     txt_var.trace_add('write', lambda *args: [on_change(), save_history()])
-    
     add_control_slider(tab_text, 'Size', '-TEXT_SIZE-', 10, 300, 20, row=1)
     add_control_slider(tab_text, 'Opacity', '-TEXT_OPACITY-', 0, 255, 255, row=2)
-    
     t_col_frame = ttk.Frame(tab_text)
     t_col_frame.grid(row=3, column=0, columnspan=3, sticky='w', padx=5, pady=5)
     ttk.Label(t_col_frame, text='Color').pack(side='left')
-    
     t_col_var = tk.StringVar(value='#FFFFFF')
     gui_vars['-TEXT_COLOR-'] = t_col_var
     defaults['-TEXT_COLOR-'] = '#FFFFFF'
-    
     t_col_entry = ttk.Entry(t_col_frame, textvariable=t_col_var, width=10)
     t_col_entry.pack(side='left', padx=5)
     t_col_var.trace_add('write', lambda *args: [on_change(), save_history()])
-    
     t_col_btn = ttk.Button(t_col_frame, text='Pick')
     t_col_btn.configure(command=lambda: pick_color('-TEXT_COLOR-'))
     t_col_btn.pack(side='left', padx=5)
-    
     add_control_slider(tab_text, 'X %', '-TEXT_X-', 0, 100, 50, row=4)
     add_control_slider(tab_text, 'Y %', '-TEXT_Y-', 0, 100, 50, row=5)
     
-    # Bottom Buttons (Quick Actions)
+    # Bottom Buttons
     btn_frame = ttk.Frame(control_frame)
     btn_frame.pack(fill='x', pady=10)
     ttk.Button(btn_frame, text='Save', command=save_image).pack(side='left', expand=True, padx=2)
@@ -1116,9 +1333,15 @@ if __name__ == "__main__":
     ttk.Button(btn_frame, text='Undo', command=undo).pack(side='left', expand=True, padx=2)
     ttk.Button(btn_frame, text='Redo', command=redo).pack(side='left', expand=True, padx=2)
     
-    # Image Area
-    image_label = ttk.Label(image_frame)
-    image_label.pack(fill=tk.BOTH, expand=True)
+    # Image Area (Canvas)
+    image_canvas = tk.Canvas(image_frame, bg='#333333')
+    image_canvas.pack(fill=tk.BOTH, expand=True)
+    
+    # Bindings
+    image_canvas.bind("<B1-Motion>", paint)
+    image_canvas.bind("<ButtonPress-1>", start_paint)
+    image_canvas.bind("<ButtonRelease-1>", stop_paint)
+    image_canvas.bind("<Configure>", on_canvas_resize)
     
     # Status Bar
     status_var = tk.StringVar()
@@ -1126,10 +1349,11 @@ if __name__ == "__main__":
     status_bar = ttk.Label(root, textvariable=status_var, relief=tk.SUNKEN, anchor='w')
     status_bar.pack(side=tk.BOTTOM, fill=tk.X)
     
-    # Initial update
+    # Initial Setup
+    init_layers(original_image)
     prev_values = get_values()
-    history.append(prev_values)
+    history.append(get_state())
     history_index = 0
-    update_image(original_image)
+    update_image()
     
     root.mainloop()
