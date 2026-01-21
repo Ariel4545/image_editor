@@ -2,11 +2,22 @@
 
 # Image Editor
 
-A simple yet powerful image editor built with Python, using **Tkinter** for the interface and **Pillow** for image processing.
+A professional-grade image editor built with Python, featuring a **multi-layer architecture**, **digital painting tools**, and **RAW image support**. Powered by **Tkinter**, **Pillow**, and **rawpy**.
 
 ## Features ✨
 
 The editor is organized into tabs for easy access to all tools:
+
+### 📚 Layers & Composition (New!)
+*   **Multi-Layer System**: Stack multiple images to create complex composites.
+*   **Non-Destructive Editing**: Each layer maintains its own independent settings and effects.
+*   **Layer Management**: Add, delete, hide, and reorder layers.
+*   **Opacity Control**: Adjust transparency for each layer individually.
+
+### 🖌️ Brush & Painting (New!)
+*   **Digital Painting**: Draw directly onto any layer using the mouse.
+*   **Customization**: Control brush **Size**, **Opacity**, and **Color**.
+*   **Integration**: Paint strokes are part of the layer's image data, allowing effects to be applied on top of your drawings.
 
 ### 🎨 Effects
 *   **Blur & Box Blur**: Apply Gaussian or Box blur to soften the image.
@@ -67,10 +78,11 @@ The editor is organized into tabs for easy access to all tools:
 *   **Position**: Place text precisely using X and Y coordinates.
 
 ### 📊 Analysis & Workflow
+*   **RAW Support**: Open professional camera formats (`.dng`, `.cr2`, `.nef`, etc.) via `rawpy`.
 *   **Histogram**: View real-time RGB color distribution graphs.
-*   **Status Bar**: Monitor image dimensions and color mode.
+*   **Status Bar**: Monitor image dimensions, color mode, and active layer count.
 *   **Precision Controls**: Numeric entry boxes for all sliders.
-*   **Undo / Redo**: Revert or re-apply changes (History support).
+*   **Robust Undo / Redo**: Revert paint strokes, layer changes, and effect adjustments.
 *   **Presets**: Save and Load your favorite filter settings.
 *   **Batch Process**: Apply current settings to an entire folder of images.
 
@@ -80,21 +92,21 @@ The editor is organized into tabs for easy access to all tools:
 2.  Install the required dependencies:
 
 ```bash
-pip install Pillow
+pip install Pillow rawpy
 ```
 
-*Note: Tkinter is usually included with Python installations.*
+*   *Note: `rawpy` is optional but recommended for RAW image support.*
+*   *Note: Tkinter is usually included with Python installations.*
 
 ## Usage 🚀
 
 1.  Run the `main.py` script.
 2.  Select an image file when prompted.
-3.  Use the tabs to apply various effects and adjustments.
-4.  Use **Undo/Redo** to experiment.
-5.  Check the **Histogram** (View > Histogram) to analyze color levels.
-6.  Save your settings with **Save Preset** if you like them.
-7.  Use **Batch Process** to apply the current look to multiple images.
-8.  Click **Save** to save your edited image as a PNG or JPEG file.
+3.  **Layers**: Use the "Layers" tab to add new layers or select the active layer.
+4.  **Paint**: Switch to the "Brush" tab, enable "Active", and draw on the canvas.
+5.  **Edit**: Use the other tabs to apply effects to the **currently selected layer**.
+6.  **Undo/Redo**: Use the buttons or menu to revert any change (painting, layers, effects).
+7.  **Save**: Click **Save** to export the final composite image.
 
 ## Roadmap 🗺️
 
@@ -113,6 +125,9 @@ pip install Pillow
 *   [x] Watermark Tool
 *   [x] Modern UI with Numeric Inputs
 *   [x] Histogram Viewer
-*   [ ] Layer Support
-*   [ ] Brush Tools
-*   [ ] RAW Image Support
+*   [x] Layer Support
+*   [x] Brush Tools
+*   [x] RAW Image Support
+*   [ ] Blending Modes (Multiply, Screen, etc.)
+*   [ ] Layer Masks
+*   [ ] Selection Tools (Lasso, Marquee)
