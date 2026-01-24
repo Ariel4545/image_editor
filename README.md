@@ -11,7 +11,7 @@ The editor is organized into tabs for easy access to all tools:
 ### 📚 Layers & Composition (New!)
 *   **Multi-Layer System**: Stack multiple images to create complex composites.
 *   **Non-Destructive Editing**: Each layer maintains its own independent settings and effects.
-*   **Layer Management**: Add, delete, hide, and reorder layers.
+*   **Layer Management**: Add, delete, duplicate, import, hide, and reorder layers.
 *   **Opacity Control**: Adjust transparency for each layer individually.
 
 ### 🖌️ Brush & Painting (New!)
@@ -128,6 +128,9 @@ pip install Pillow rawpy
 *   [x] Layer Support
 *   [x] Brush Tools
 *   [x] RAW Image Support
+*   [x] Performance Optimization (Dual-Resolution Pipeline)
+*   [x] Smart History (Structural Sharing)
+*   [x] Optimized Compositing
 *   [ ] Blending Modes (Multiply, Screen, etc.)
 *   [ ] Layer Masks
 *   [ ] Selection Tools (Lasso, Marquee)
